@@ -2,23 +2,16 @@ from playwright.sync_api import Page
 from loguru import logger
 import time
 
-def check_deposit(page: Page):
+def check_deposit(page: Page) -> int:
     """
-    현재 예치금을 확인하여 로그에 출력합니다.
+    현재 예치금을 확인하여 정수형으로 반환합니다.
+    실패 시 -1을 반환합니다.
     """
     try:
         # 상단 예치금 정보 셀렉터 (사이트 구조에 따라 변경 가능성 있음)
         # 보통 로그인 후 상단에 '예치금 : 000원' 형태로 표시됨
         # 정확한 셀렉터를 찾기 위해 일반적인 패턴 사용
         deposit_selector = '.money' # 가상의 클래스, 실제 확인 필요. 
-        # 실제 사이트 구조를 모르므로, 텍스트를 포함하는 요소를 찾거나 일반적인 경로 시도
-        # 여기서는 예시로 상단 메뉴바 근처의 텍스트를 추출하여 파싱하는 방식을 시도하거나
-        # 마이페이지로 이동하여 확인하는 것이 확실할 수 있음.
-        # 우선은 메인 페이지 상단에 '충전' 버튼 근처에 금액이 있는지 확인.
-        
-        # 동행복권 사이트 구조상 로그인 후 상단에 '예치금 : X,XXX원' 이 보임.
-        # class="money" 또는 id="money" 등을 추측.
-        # 실패 시 전체 텍스트에서 '예치금'을 찾음.
         
         element = page.query_selector('.money') # 추측
         if not element:
@@ -28,13 +21,22 @@ def check_deposit(page: Page):
         if element:
             text = element.inner_text()
             logger.info(f"현재 예치금 정보: {text}")
-            return text
+            
+            # "20,750원" -> 20750 파싱
+            import re
+            numbers = re.findall(r'\d+', text)
+            if numbers:
+                amount = int(''.join(numbers))
+                return amount
+            else:
+                logger.warning("예치금 텍스트에서 숫자를 찾을 수 없습니다.")
+                return -1
         else:
             logger.warning("예치금 정보를 찾을 수 없습니다.")
-            return "Unknown"
+            return -1
     except Exception as e:
         logger.error(f"예치금 확인 중 오류: {e}")
-        return "Error"
+        return -1
 
 def go_to_lotto_page(page: Page):
     """

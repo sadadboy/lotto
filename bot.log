@@ -1,0 +1,42 @@
+2025-11-25 00:48:33.014 | INFO     | __main__:run_scheduler:65 - 🤖 로또 봇 스케줄러가 시작되었습니다.
+2025-11-25 00:48:33.356 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 00:48:33.357 | INFO     | __main__:run_scheduler:92 - 📅 구매 예약: 매주 Monday 21:40
+2025-11-25 00:48:33.706 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 00:53:01.074 | INFO     | __main__:run_scheduler:65 - 🤖 로또 봇 스케줄러가 시작되었습니다.
+2025-11-25 00:53:01.397 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 00:53:01.400 | INFO     | __main__:run_scheduler:92 - 📅 구매 예약: 매주 Monday 21:40
+2025-11-25 00:53:01.775 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 01:01:35.759 | INFO     | __main__:run_scheduler:65 - 🤖 로또 봇 스케줄러가 시작되었습니다.
+2025-11-25 01:01:36.164 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 01:01:36.166 | INFO     | __main__:run_scheduler:92 - 📅 구매 예약: 매주 Tuesday 13:03
+2025-11-25 01:01:36.484 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 01:01:57.243 | INFO     | __main__:run_scheduler:65 - 🤖 로또 봇 스케줄러가 시작되었습니다.
+2025-11-25 01:01:57.590 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 01:01:57.591 | INFO     | __main__:run_scheduler:92 - 📅 구매 예약: 매주 Tuesday 01:03
+2025-11-25 01:01:57.983 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 01:03:00.015 | INFO     | __main__:buy_job:27 - ⏰ 예약된 구매 작업을 시작합니다.
+2025-11-25 01:03:00.335 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 01:03:00.336 | INFO     | auth:login:9 - 브라우저 실행 중... (Headless: True)
+2025-11-25 01:03:01.513 | INFO     | auth:login:23 - 동행복권 로그인 페이지 이동 중...
+2025-11-25 01:03:03.521 | INFO     | auth:login:26 - 아이디/비밀번호 입력 중...
+2025-11-25 01:03:03.603 | INFO     | auth:login:32 - 로그인 버튼 클릭...
+2025-11-25 01:03:05.875 | INFO     | auth:login:45 - 로그인 확인 완료.
+2025-11-25 01:03:05.875 | INFO     | buy_lotto:buy_games:16 - 로또 구매 프로세스 시작...
+2025-11-25 01:03:06.204 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 01:03:06.204 | INFO     | buy_lotto:buy_games:24 - 구매 페이지로 이동 중...
+2025-11-25 01:03:07.803 | WARNING  | buy_lotto:buy_games:52 - 구매 가능 수량 요소를 찾을 수 없습니다. 기본값 5로 진행합니다.
+2025-11-25 01:03:07.803 | INFO     | buy_lotto:buy_games:64 - 설정된 게임: 5개, 활성화된 게임: 1개
+2025-11-25 01:03:07.804 | INFO     | buy_lotto:buy_games:84 - Game 1 처리 중 (모드: auto)...
+2025-11-25 01:03:07.804 | INFO     | buy_lotto:buy_games:103 - Game 1: 자동 선택
+2025-11-25 01:03:37.821 | ERROR    | buy_lotto:buy_games:168 - 구매 프로세스 중 오류 발생: Locator.click: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("iframe#ifrm_tab").content_frame.locator("#num2")
+
+2025-11-25 01:03:38.172 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 01:03:38.293 | INFO     | buy_lotto:buy_games:172 - 오류 화면 저장: buy_error.png
+2025-11-25 01:03:38.293 | ERROR    | __main__:buy_job:52 - 구매 작업 중 오류 발생: Locator.click: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("iframe#ifrm_tab").content_frame.locator("#num2")
+
+2025-11-25 01:03:38.705 | INFO     | notification:send_discord_message:42 - 디스코드 알림 전송 성공
+2025-11-25 01:03:38.807 | INFO     | __main__:buy_job:57 - 브라우저 종료

@@ -1,101 +1,108 @@
+import schedule
+import time
+import json
 import os
-import sys
-from dotenv import load_dotenv
 from loguru import logger
 from auth import login
+from buy_lotto import buy_games
+from notification import send_discord_message
 
-# 환경 변수 로드
-load_dotenv()
+# 설정 파일 경로
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bot.log')
 
-def main():
-    # 암호화된 환경 변수 로드
-    encrypted_id = os.getenv("LOTTO_USER_ID")
-    encrypted_pw = os.getenv("LOTTO_USER_PW")
+# 로그 파일 설정 (덮어쓰기 모드 X, 추가 모드 O, 매일 회전 등은 선택사항)
+# 여기서는 간단하게 파일로 남김
+logger.add(LOG_PATH, rotation="1 MB", retention="10 days", encoding="utf-8")
 
-    if not encrypted_id or not encrypted_pw:
-        logger.error("아이디 또는 비밀번호가 설정되지 않았습니다. 'python setup_auth.py'를 실행하여 설정해주세요.")
-        return
-
-    # 복호화
-    from security import SecurityManager
-    manager = SecurityManager()
-    user_id = manager.decrypt(encrypted_id)
-    user_pw = manager.decrypt(encrypted_pw)
-
-    if not user_id or not user_pw:
-        logger.error("계정 정보 복호화 실패. 'secret.key'가 변경되었거나 파일이 손상되었습니다. 'python setup_auth.py'를 다시 실행해주세요.")
-        return
-
-    logger.info("로또 자동 구매 프로그램 시작")
-    
-    # 로그인 테스트
+def load_config():
     try:
-        browser, page = login(user_id, user_pw)
-        logger.success("로그인 성공! (브라우저가 열려있습니다)")
-        
-        # 2단계: 구매 로직 테스트
-        import lotto
-        
-        # 예치금 확인
-        lotto.check_deposit(page)
-        
-        # 구매 페이지 이동
-        # 주의: go_to_lotto_page가 현재 페이지를 이동시키는지, 새 팝업을 여는지에 따라 처리 달라짐
-        # 현재 구현은 goto로 이동함
-        lotto.go_to_lotto_page(page)
-        
-        # 잠시 대기 (로딩)
-        import time
-        time.sleep(3)
-        
-        # 3단계: 전략 기반 구매
-        import analysis
-        
-        # 전략 설정 (환경 변수 또는 기본값)
-        # auto: 사이트 자동선택 (AI 추천?)
-        # hot: 과거 당첨 많이 된 번호
-        # cold: 과거 당첨 적게 된 번호
-        strategy = os.getenv("LOTTO_STRATEGY", "hot").lower()
-        
-        if strategy == "auto":
-            logger.info(">>> 전략: AI 추천 (사이트 자동선택) <<<")
-            logger.info("사이트의 '자동번호발급' 기능을 사용합니다.")
-            lotto.select_auto_numbers(page, quantity=1)
-            
-        else:
-            if strategy == "hot":
-                logger.info(">>> 전략: 과거 1등 번호 기반 (Hot) <<<")
-                logger.info("최근 당첨번호를 분석하여 가장 많이 나온 번호를 조합합니다.")
-            elif strategy == "cold":
-                logger.info(">>> 전략: 과거 미출현 번호 기반 (Cold) <<<")
-                logger.info("최근 당첨번호를 분석하여 가장 적게 나온 번호를 조합합니다.")
-            else:
-                logger.warning(f"알 수 없는 전략 '{strategy}'. 기본값(Hot)으로 진행합니다.")
-                strategy = "hot"
-
-            # 최근 10회차 데이터 수집
-            history = analysis.fetch_recent_history(limit=10)
-            
-            # 전략에 따른 번호 생성
-            numbers = analysis.generate_numbers(strategy=strategy, history=history)
-            logger.info(f"생성된 추천 번호: {numbers}")
-            
-            # 생성된 번호로 수동 선택
-            lotto.select_manual_numbers(page, numbers)
-
-        time.sleep(1)
-        
-        # 구매 (Dry Run)
-        lotto.buy_lotto(page, dry_run=True)
-        
-        # 테스트를 위해 잠시 대기
-        input("엔터를 누르면 종료합니다...")
-        
-        browser.close()
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
     except Exception as e:
-        logger.error(f"실행 중 오류 발생: {e}")
-        if 'browser' in locals():
+        logger.error(f"설정 파일 로드 실패: {e}")
+        return None
+
+def buy_job():
+    logger.info("⏰ 예약된 구매 작업을 시작합니다.")
+    send_discord_message("⏰ 예약된 구매 작업을 시작합니다.")
+    
+    config = load_config()
+    if not config:
+        return
+
+    user_id = config['account']['user_id']
+    user_pw = config['account']['user_pw']
+    games_config = config['games']
+    
+    # Headless 모드는 Docker 환경을 고려하여 True로 설정 (추후 config에서 제어 가능)
+    # 현재는 디버깅을 위해 False로 설정할 수도 있지만, 봇으로 돌릴 땐 True가 일반적
+    # 사용자가 보는 화면이 아니므로 True 권장
+    headless = True 
+    
+    browser = None
+    try:
+        # 로그인
+        browser, page = login(user_id, user_pw, headless=headless)
+        
+        # 구매 진행
+        buy_games(page, games_config, dry_run=False) # 실제 구매!
+        
+    except Exception as e:
+        logger.error(f"구매 작업 중 오류 발생: {e}")
+        send_discord_message(f"❌ 구매 작업 중 오류 발생: {e}")
+    finally:
+        if browser:
             browser.close()
+            logger.info("브라우저 종료")
+
+def deposit_job():
+    # 예치금 충전 로직 (현재 보류 중)
+    logger.info("예치금 충전 작업 (현재 비활성화됨)")
+    pass
+
+def run_scheduler():
+    logger.info("🤖 로또 봇 스케줄러가 시작되었습니다.")
+    send_discord_message("🤖 로또 봇이 시작되었습니다. 스케줄을 대기합니다.")
+    
+    config = load_config()
+    if not config:
+        logger.error("설정을 불러올 수 없어 종료합니다.")
+        return
+
+    # 스케줄 설정
+    schedule_config = config['schedule']
+    
+    buy_day = schedule_config.get('buy_day', 'Saturday')
+    buy_time = schedule_config.get('buy_time', '10:00')
+    
+    # 요일 매핑
+    days = {
+        'Monday': schedule.every().monday,
+        'Tuesday': schedule.every().tuesday,
+        'Wednesday': schedule.every().wednesday,
+        'Thursday': schedule.every().thursday,
+        'Friday': schedule.every().friday,
+        'Saturday': schedule.every().saturday,
+        'Sunday': schedule.every().sunday
+    }
+    
+    if buy_day in days:
+        days[buy_day].at(buy_time).do(buy_job)
+        logger.info(f"📅 구매 예약: 매주 {buy_day} {buy_time}")
+        send_discord_message(f"📅 구매 예약됨: 매주 {buy_day} {buy_time}")
+    else:
+        logger.error(f"잘못된 요일 설정: {buy_day}")
+
+    # 예치금 충전 스케줄 (일단 주석 처리 또는 비활성화)
+    # deposit_day = schedule_config.get('deposit_day', 'Friday')
+    # deposit_time = schedule_config.get('deposit_time', '18:00')
+    # if deposit_day in days:
+    #     days[deposit_day].at(deposit_time).do(deposit_job)
+
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
 
 if __name__ == "__main__":
-    main()
+    run_scheduler()

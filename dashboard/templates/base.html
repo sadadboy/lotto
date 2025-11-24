@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lotto Bot Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/toggle.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <!-- FontAwesome (Optional, replace with local or CDN) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo">
+                <h2>🎱 Lotto Bot</h2>
+            </div>
+            <nav>
+                <ul>
+                    <li class="active"><a href="#section-status"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+                    </li>
+                    <li><a href="#section-account"><i class="fas fa-user-cog"></i> Account</a></li>
+                    <li><a href="#section-purchase"><i class="fas fa-shopping-cart"></i> Purchase</a></li>
+                    <li><a href="#section-schedule"><i class="fas fa-calendar-alt"></i> Schedule</a></li>
+                    <li><a href="#section-system"><i class="fas fa-cog"></i> System</a></li>
+                    <li><a href="#section-logs"><i class="fas fa-history"></i> Logs</a></li>
+                </ul>
+            </nav>
+            <div class="status-indicator">
+                <span class="dot stopped"></span> Bot Stopped
+            </div>
+        </aside>
+
+        <main class="content">
+            <header>
+                <h1>Dashboard</h1>
+                <div class="user-info">
+                    <span>Admin</span>
+                </div>
+            </header>
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+
+</html>

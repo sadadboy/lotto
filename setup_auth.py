@@ -17,11 +17,17 @@ def setup():
         print("비밀번호가 입력되지 않았습니다.")
         return
 
+    pay_pw = getpass("결제 비밀번호(6자리) 입력: ").strip()
+    if not pay_pw or len(pay_pw) != 6 or not pay_pw.isdigit():
+        print("결제 비밀번호는 6자리 숫자여야 합니다.")
+        return
+
     manager = SecurityManager()
     encrypted_id = manager.encrypt(user_id)
     encrypted_pw = manager.encrypt(user_pw)
+    encrypted_pay_pw = manager.encrypt(pay_pw)
 
-    env_content = f"LOTTO_USER_ID={encrypted_id}\nLOTTO_USER_PW={encrypted_pw}\n"
+    env_content = f"LOTTO_USER_ID={encrypted_id}\nLOTTO_USER_PW={encrypted_pw}\nLOTTO_PAY_PW={encrypted_pay_pw}\n"
 
     with open(".env", "w", encoding="utf-8") as f:
         f.write(env_content)

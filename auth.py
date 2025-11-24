@@ -2,19 +2,19 @@ from playwright.sync_api import sync_playwright
 from loguru import logger
 import time
 
-def login(user_id, user_pw):
+def login(user_id, user_pw, headless=False):
     """
     동행복권 사이트에 로그인합니다.
     """
-    logger.info("브라우저 실행 중...")
+    logger.info(f"브라우저 실행 중... (Headless: {headless})")
     
     # Playwright 컨텍스트 매니저를 함수 밖에서 관리해야 브라우저가 유지됨
     # 여기서는 간단한 테스트를 위해 함수 내에서 실행하고 browser 객체를 반환하는 구조로 작성
     # 실제로는 클래스로 관리하는 것이 좋음
     
     playwright = sync_playwright().start()
-    # 헤드리스 모드 끔 (눈으로 확인하기 위해), 리눅스 배포시에는 True로 변경 필요
-    browser = playwright.chromium.launch(headless=False)
+    # 헤드리스 모드 설정
+    browser = playwright.chromium.launch(headless=headless)
     
     try:
         context = browser.new_context()

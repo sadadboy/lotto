@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-grid">
+    <!-- Status Cards -->
+    <div class="card status-card">
+        <h3>💰 예치금 잔액</h3>
+        <p class="value" id="balance-display">Loading...</p>
+    </div>
+    <div class="card status-card">
+        <h3>📅 다음 추첨일</h3>
+        <p class="value">1147회 (토)</p>
+    </div>
+    <div class="card status-card">
+        <h3>🤖 봇 상태</h3>
+        <p class="value" id="bot-status">Stopped</p>
+        <div class="controls">
+            <button id="btn-start" class="btn btn-success">Start</button>
+            <button id="btn-stop" class="btn btn-danger">Stop</button>
+        </div>
+    </div>
+</div>
+
+<div class="settings-grid">
+    <!-- Account Settings -->
+    <div class="card settings-card" id="section-account">
+        <div class="card-header">
+            <h3>👤 계정 설정</h3>
+        </div>
+        <form id="account-form">
+            <div class="form-group">
+                <label>아이디</label>
+                <input type="text" id="user_id" name="user_id" placeholder="dhlottery ID">
+            </div>
+            <div class="form-group">
+                <label>비밀번호</label>
+                <input type="password" id="user_pw" name="user_pw" placeholder="Password">
+            </div>
+            <div class="form-group">
+                <label>결제 비밀번호 (6자리)</label>
+                <input type="password" id="pay_pw" name="pay_pw" maxlength="6" placeholder="Payment PW">
+            </div>
+            <div class="form-actions">
+                <button type="button" id="btn-test-login" class="btn btn-secondary">로그인 테스트</button>
+                <button type="submit" class="btn btn-primary">저장</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Purchase Settings -->
+    <div class="card settings-card" id="section-purchase">
+        <div class="card-header">
+            <h3>🎟️ 구매 설정 (5게임)</h3>
+        </div>
+        <form id="purchase-form">
+            <div id="games-container">
+                <!-- JS will populate this -->
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">저장</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Schedule Settings -->
+    <div class="card settings-card" id="section-schedule">
+        <div class="card-header">
+            <h3>📅 스케줄 설정</h3>
+        </div>
+        <form id="schedule-form">
+            <div class="form-group">
+                <label>💰 자동 충전 (요일/시간)</label>
+                <div class="schedule-inputs">
+                    <select id="deposit_day">
+                        <option value="Monday">월요일</option>
+                        <option value="Tuesday">화요일</option>
+                        <option value="Wednesday">수요일</option>
+                        <option value="Thursday">목요일</option>
+                        <option value="Friday">금요일</option>
+                        <option value="Saturday">토요일</option>
+                        <option value="Sunday">일요일</option>
+                    </select>
+                    <input type="time" id="deposit_time">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>🛒 자동 구매 (요일/시간)</label>
+                <div class="schedule-inputs">
+                    <select id="buy_day">
+                        <option value="Monday">월요일</option>
+                        <option value="Tuesday">화요일</option>
+                        <option value="Wednesday">수요일</option>
+                        <option value="Thursday">목요일</option>
+                        <option value="Friday">금요일</option>
+                        <option value="Saturday">토요일</option>
+                        <option value="Sunday">일요일</option>
+                    </select>
+                    <input type="time" id="buy_time">
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">저장</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- System Settings -->
+    <div class="card settings-card" id="section-system">
+        <div class="card-header">
+            <h3>⚙️ 시스템 설정</h3>
+        </div>
+        <form id="system-form">
+            <div class="form-group">
+                <label>Discord Webhook URL</label>
+                <input type="text" id="discord_webhook" name="discord_webhook"
+                    placeholder="https://discord.com/api/webhooks/...">
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">저장</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Logs Section (Placeholder) -->
+<div class="card settings-card" id="section-logs" style="margin-top: 20px;">
+    <div class="card-header">
+        <h3>📜 실행 로그</h3>
+    </div>
+    <div class="log-viewer"
+        style="background: #000; padding: 10px; border-radius: 5px; height: 200px; overflow-y: scroll; font-family: monospace; color: #0f0;">
+        <p>[INFO] System started...</p>
+        <p>[INFO] Dashboard initialized.</p>
+    </div>
+</div>
+{% endblock %}

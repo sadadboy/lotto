@@ -1,0 +1,53 @@
+{
+    "account": {
+        "user_id": "sadadboy",
+        "user_pw": "pp7qw34p@!@",
+        "pay_pw": "128500"
+    },
+    "games": [
+        {
+            "id": 1,
+            "active": true,
+            "mode": "auto",
+            "numbers": "",
+            "analysis_range": "50"
+        },
+        {
+            "id": 2,
+            "active": false,
+            "mode": "auto",
+            "numbers": "",
+            "analysis_range": "50"
+        },
+        {
+            "id": 3,
+            "active": false,
+            "mode": "ai",
+            "numbers": "",
+            "analysis_range": "50"
+        },
+        {
+            "id": 4,
+            "active": false,
+            "mode": "ai",
+            "numbers": "",
+            "analysis_range": "100"
+        },
+        {
+            "id": 5,
+            "active": false,
+            "mode": "max_first",
+            "numbers": "",
+            "analysis_range": "100"
+        }
+    ],
+    "schedule": {
+        "deposit_day": "Friday",
+        "deposit_time": "18:00",
+        "buy_day": "Tuesday",
+        "buy_time": "01:03"
+    },
+    "system": {
+        "discord_webhook": "https://discord.com/api/webhooks/1392528407685894146/rwSBXQfFEeck2XWHbx91QHgMMyiQrW46p4QojCIUxSonhYHIEbjLN-FRD0cjEa5cAVzR"
+    }
+}
