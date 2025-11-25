@@ -11,25 +11,31 @@ document.addEventListener('DOMContentLoaded', function () {
     // 계정 설정 저장
     document.querySelector('#account-form button[type="submit"]').addEventListener('click', function (e) {
         e.preventDefault();
-        saveConfig();
+        saveConfig('account');
     });
 
     // 구매 설정 저장
     document.querySelector('#purchase-form button[type="submit"]').addEventListener('click', function (e) {
         e.preventDefault();
-        saveConfig();
+        saveConfig('purchase');
+    });
+
+    // 예치금 설정 저장
+    document.querySelector('#deposit-form button[type="submit"]').addEventListener('click', function (e) {
+        e.preventDefault();
+        saveConfig('deposit');
     });
 
     // 스케줄 설정 저장
     document.querySelector('#schedule-form button[type="submit"]').addEventListener('click', function (e) {
         e.preventDefault();
-        saveConfig();
+        saveConfig('schedule');
     });
 
     // 시스템 설정 저장
     document.querySelector('#system-form button[type="submit"]').addEventListener('click', function (e) {
         e.preventDefault();
-        saveConfig();
+        saveConfig('system');
     });
 
     // 봇 시작
@@ -88,6 +94,30 @@ document.addEventListener('DOMContentLoaded', function () {
             .finally(() => {
                 document.getElementById('btn-test-login').disabled = false;
                 document.getElementById('btn-test-login').textContent = '로그인 테스트';
+            });
+    });
+
+    // 예치금 충전 테스트 (OCR)
+    document.getElementById('btn-test-deposit').addEventListener('click', function () {
+        if (!confirm("충전 테스트를 시작하시겠습니까?\n실제 브라우저가 열리고 5,000원 충전을 시도합니다.\n(결제 비밀번호 입력까지만 진행하고 실제 결제는 하지 않을 수 있습니다.)")) {
+            return;
+        }
+
+        this.disabled = true;
+        this.textContent = '테스트 중...';
+
+        fetch('/api/test/deposit', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('충전 테스트 중 오류가 발생했습니다.');
+            })
+            .finally(() => {
+                document.getElementById('btn-test-deposit').disabled = false;
+                document.getElementById('btn-test-deposit').textContent = '충전 테스트 (OCR)';
             });
     });
 });
@@ -174,39 +204,140 @@ function toggleInputs(selectElem, index) {
     }
 }
 
+// Setup Form Submit
+document.getElementById('setup-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    saveSetupConfig();
+});
+
+
 function loadConfig() {
-    fetch('/api/config')
-        .then(response => response.json())
+    const loadingScreen = document.getElementById('loading-screen');
+    const statusText = loadingScreen ? loadingScreen.querySelector('p') : null;
+
+    if (statusText) statusText.textContent = "서버에 연결 중입니다...";
+
+    // 5초 타임아웃 설정
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    fetch('/api/config', { signal: controller.signal })
+        .then(response => {
+            if (statusText) statusText.textContent = "데이터 수신 중...";
+            return response.json();
+        })
         .then(config => {
-            // Account
-            if (config.account) {
-                document.getElementById('user_id').value = config.account.user_id || '';
-                document.getElementById('user_pw').value = config.account.user_pw || '';
-                document.getElementById('pay_pw').value = config.account.pay_pw || '';
-            }
+            clearTimeout(timeoutId);
+            if (statusText) statusText.textContent = "화면 구성 중...";
 
-            // Games
-            if (config.games) {
-                renderGameSlots(config.games);
-            }
+            // Hide Loading Screen
+            if (loadingScreen) loadingScreen.style.display = 'none';
 
-            // Schedule
-            if (config.schedule) {
-                document.getElementById('deposit_day').value = config.schedule.deposit_day || 'Friday';
-                document.getElementById('deposit_time').value = config.schedule.deposit_time || '18:00';
-                document.getElementById('buy_day').value = config.schedule.buy_day || 'Saturday';
-                document.getElementById('buy_time').value = config.schedule.buy_time || '10:00';
-            }
+            // Check if account is configured
+            const userId = config.account ? config.account.user_id : '';
 
-            // System
-            if (config.system) {
-                document.getElementById('discord_webhook').value = config.system.discord_webhook || '';
+            if (!userId) {
+                // Show Setup Wizard
+                document.getElementById('setup-wizard').style.display = 'block';
+                document.getElementById('main-dashboard').style.display = 'none';
+            } else {
+                // Show Main Dashboard
+                document.getElementById('setup-wizard').style.display = 'none';
+                document.getElementById('main-dashboard').style.display = 'block';
+
+                // Populate Dashboard Fields
+                populateDashboard(config);
             }
         })
-        .catch(error => console.error('Error loading config:', error));
+        .catch(error => {
+            console.error('Error loading config:', error);
+            // Show error on loading screen
+            if (loadingScreen) {
+                let errorMsg = "서버와 통신할 수 없습니다.";
+                if (error.name === 'AbortError') {
+                    errorMsg = "연결 시간이 초과되었습니다. (Timeout)";
+                }
+                loadingScreen.innerHTML = `
+                    <h2 style="color: #ff5555;">❌ 연결 실패</h2>
+                    <p>${errorMsg}</p>
+                    <p style="font-size: 0.8em; color: #666;">${error.message}</p>
+                    <button onclick="location.reload()" class="btn btn-primary" style="margin-top: 20px;">다시 시도</button>
+                `;
+            }
+        });
 }
 
-function saveConfig() {
+function populateDashboard(config) {
+    // Account
+    if (config.account) {
+        document.getElementById('user_id').value = config.account.user_id || '';
+        // Passwords are masked/empty from server, so we don't set them unless user wants to change
+    }
+
+    // Games
+    if (config.games) {
+        renderGameSlots(config.games);
+    }
+
+    // Deposit
+    if (config.deposit) {
+        document.getElementById('deposit_threshold').value = config.deposit.threshold || 5000;
+        document.getElementById('deposit_amount').value = config.deposit.amount || 20000;
+    }
+
+    // Schedule
+    if (config.schedule) {
+        document.getElementById('deposit_day').value = config.schedule.deposit_day || 'Friday';
+        document.getElementById('deposit_time').value = config.schedule.deposit_time || '18:00';
+        document.getElementById('buy_day').value = config.schedule.buy_day || 'Saturday';
+        document.getElementById('buy_time').value = config.schedule.buy_time || '10:00';
+    }
+
+    // System
+    if (config.system) {
+        document.getElementById('discord_webhook').value = config.system.discord_webhook || '';
+    }
+}
+
+function saveSetupConfig() {
+    const userId = document.getElementById('setup_user_id').value;
+    const userPw = document.getElementById('setup_user_pw').value;
+    const payPw = document.getElementById('setup_pay_pw').value;
+
+    if (!userId || !userPw || !payPw) {
+        alert("모든 필드를 입력해주세요.");
+        return;
+    }
+
+    // Create initial config structure
+    // We need to fetch current config first to preserve other defaults? 
+    // Or just overwrite account section.
+
+    fetch('/api/config')
+        .then(response => response.json())
+        .then(currentConfig => {
+            currentConfig.account = {
+                user_id: userId,
+                user_pw: userPw,
+                pay_pw: payPw
+            };
+
+            // Save
+            fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(currentConfig)
+            })
+                .then(response => response.json())
+                .then(data => {
+                    alert("설정이 완료되었습니다! 대시보드로 이동합니다.");
+                    // Reload to switch view
+                    loadConfig();
+                });
+        });
+}
+
+function saveConfig(source) {
     // Collect Games Data
     const games = [];
     for (let i = 0; i < 5; i++) {
@@ -233,6 +364,10 @@ function saveConfig() {
             pay_pw: document.getElementById('pay_pw').value
         },
         games: games,
+        deposit: {
+            threshold: parseInt(document.getElementById('deposit_threshold').value) || 5000,
+            amount: parseInt(document.getElementById('deposit_amount').value) || 20000
+        },
         schedule: {
             deposit_day: document.getElementById('deposit_day').value,
             deposit_time: document.getElementById('deposit_time').value,
@@ -243,6 +378,16 @@ function saveConfig() {
             discord_webhook: document.getElementById('discord_webhook').value
         }
     };
+
+    // Time Validation (Only if saving schedule)
+    if (source === 'schedule') {
+        const buyTime = config.schedule.buy_time;
+        const [hours, minutes] = buyTime.split(':').map(Number);
+        if (hours < 6) {
+            alert("구매 시간은 오전 6시부터 자정(24:00) 사이로만 설정 가능합니다.");
+            return;
+        }
+    }
 
     fetch('/api/config', {
         method: 'POST',

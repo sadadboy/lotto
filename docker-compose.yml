@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  lotto-bot:
+    build: .
+    container_name: lotto-bot
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount config.json to persist settings
+      - ./config.json:/app/config.json
+      # Mount bot.log to persist logs
+      - ./bot.log:/app/bot.log
+    environment:
+      - TZ=Asia/Seoul
+      - HEADLESS=true
+      # Add any other environment variables here if needed
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t

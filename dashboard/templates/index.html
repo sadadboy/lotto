@@ -1,136 +1,196 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="dashboard-grid">
-    <!-- Status Cards -->
-    <div class="card status-card">
-        <h3>💰 예치금 잔액</h3>
-        <p class="value" id="balance-display">Loading...</p>
-    </div>
-    <div class="card status-card">
-        <h3>📅 다음 추첨일</h3>
-        <p class="value">1147회 (토)</p>
-    </div>
-    <div class="card status-card">
-        <h3>🤖 봇 상태</h3>
-        <p class="value" id="bot-status">Stopped</p>
-        <div class="controls">
-            <button id="btn-start" class="btn btn-success">Start</button>
-            <button id="btn-stop" class="btn btn-danger">Stop</button>
-        </div>
-    </div>
+<!-- Loading Screen (Initially Visible) -->
+<div id="loading-screen" style="text-align: center; margin-top: 100px;">
+    <h2 style="color: #7aa2f7;">🔄 시스템 확인 중...</h2>
+    <p style="color: #a9b1d6;">계정 정보와 봇 상태를 확인하고 있습니다.</p>
 </div>
 
-<div class="settings-grid">
-    <!-- Account Settings -->
-    <div class="card settings-card" id="section-account">
-        <div class="card-header">
-            <h3>👤 계정 설정</h3>
+<!-- Setup Wizard (Hidden by default) -->
+<div id="setup-wizard"
+    style="display: none; max-width: 500px; margin: 50px auto; padding: 30px; background: #1a1b26; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center;">
+    <h2 style="color: #7aa2f7; margin-bottom: 20px;">👋 환영합니다!</h2>
+    <p style="color: #a9b1d6; margin-bottom: 30px;">로또 봇을 사용하기 위해 먼저 <strong>동행복권 계정</strong>을 설정해주세요.</p>
+
+    <form id="setup-form">
+        <div class="form-group" style="text-align: left;">
+            <label>아이디</label>
+            <input type="text" id="setup_user_id" required placeholder="dhlottery ID">
         </div>
-        <form id="account-form">
-            <div class="form-group">
-                <label>아이디</label>
-                <input type="text" id="user_id" name="user_id" placeholder="dhlottery ID">
+        <div class="form-group" style="text-align: left;">
+            <label>비밀번호</label>
+            <input type="password" id="setup_user_pw" required placeholder="Password">
+        </div>
+        <div class="form-group" style="text-align: left;">
+            <label>결제 비밀번호 (6자리)</label>
+            <input type="password" id="setup_pay_pw" required maxlength="6" placeholder="Payment PW">
+        </div>
+        <button type="submit" class="btn btn-primary"
+            style="width: 100%; margin-top: 20px; padding: 12px; font-size: 1.1em;">설정 저장 및 시작</button>
+    </form>
+</div>
+
+<!-- Main Dashboard Content (Hidden until setup is complete) -->
+<div id="main-dashboard" style="display: none;">
+    <div class="dashboard-grid">
+        <!-- Status Cards -->
+        <div class="card status-card">
+            <h3>💰 예치금 잔액</h3>
+            <p class="value" id="balance-display">Loading...</p>
+        </div>
+        <div class="card status-card">
+            <h3>📅 다음 추첨일</h3>
+            <p class="value">1147회 (토)</p>
+        </div>
+        <div class="card status-card">
+            <h3>🤖 봇 상태</h3>
+            <p class="value" id="bot-status">Stopped</p>
+            <div class="controls">
+                <button id="btn-start" class="btn btn-success">Start</button>
+                <button id="btn-stop" class="btn btn-danger">Stop</button>
             </div>
-            <div class="form-group">
-                <label>비밀번호</label>
-                <input type="password" id="user_pw" name="user_pw" placeholder="Password">
-            </div>
-            <div class="form-group">
-                <label>결제 비밀번호 (6자리)</label>
-                <input type="password" id="pay_pw" name="pay_pw" maxlength="6" placeholder="Payment PW">
-            </div>
-            <div class="form-actions">
-                <button type="button" id="btn-test-login" class="btn btn-secondary">로그인 테스트</button>
-                <button type="submit" class="btn btn-primary">저장</button>
-            </div>
-        </form>
+        </div>
     </div>
 
-    <!-- Purchase Settings -->
-    <div class="card settings-card" id="section-purchase">
-        <div class="card-header">
-            <h3>🎟️ 구매 설정 (5게임)</h3>
-        </div>
-        <form id="purchase-form">
-            <div id="games-container">
-                <!-- JS will populate this -->
+    <div class="settings-grid">
+        <!-- Account Settings -->
+        <div class="card settings-card" id="section-account">
+            <div class="card-header">
+                <h3>👤 계정 설정</h3>
             </div>
-            <div class="form-actions">
-                <button type="submit" class="btn btn-primary">저장</button>
-            </div>
-        </form>
-    </div>
-
-    <!-- Schedule Settings -->
-    <div class="card settings-card" id="section-schedule">
-        <div class="card-header">
-            <h3>📅 스케줄 설정</h3>
-        </div>
-        <form id="schedule-form">
-            <div class="form-group">
-                <label>💰 자동 충전 (요일/시간)</label>
-                <div class="schedule-inputs">
-                    <select id="deposit_day">
-                        <option value="Monday">월요일</option>
-                        <option value="Tuesday">화요일</option>
-                        <option value="Wednesday">수요일</option>
-                        <option value="Thursday">목요일</option>
-                        <option value="Friday">금요일</option>
-                        <option value="Saturday">토요일</option>
-                        <option value="Sunday">일요일</option>
-                    </select>
-                    <input type="time" id="deposit_time">
+            <form id="account-form">
+                <div class="form-group">
+                    <label>아이디</label>
+                    <input type="text" id="user_id" name="user_id" placeholder="dhlottery ID">
                 </div>
-            </div>
-            <div class="form-group">
-                <label>🛒 자동 구매 (요일/시간)</label>
-                <div class="schedule-inputs">
-                    <select id="buy_day">
-                        <option value="Monday">월요일</option>
-                        <option value="Tuesday">화요일</option>
-                        <option value="Wednesday">수요일</option>
-                        <option value="Thursday">목요일</option>
-                        <option value="Friday">금요일</option>
-                        <option value="Saturday">토요일</option>
-                        <option value="Sunday">일요일</option>
-                    </select>
-                    <input type="time" id="buy_time">
+                <div class="form-group">
+                    <label>비밀번호</label>
+                    <input type="password" id="user_pw" name="user_pw" placeholder="Password">
                 </div>
-            </div>
-            <div class="form-actions">
-                <button type="submit" class="btn btn-primary">저장</button>
-            </div>
-        </form>
-    </div>
-
-    <!-- System Settings -->
-    <div class="card settings-card" id="section-system">
-        <div class="card-header">
-            <h3>⚙️ 시스템 설정</h3>
+                <div class="form-group">
+                    <label>결제 비밀번호 (6자리)</label>
+                    <input type="password" id="pay_pw" name="pay_pw" maxlength="6" placeholder="Payment PW">
+                </div>
+                <div class="form-actions">
+                    <button type="button" id="btn-test-login" class="btn btn-secondary">로그인 테스트</button>
+                    <button type="submit" class="btn btn-primary">저장</button>
+                </div>
+            </form>
         </div>
-        <form id="system-form">
-            <div class="form-group">
-                <label>Discord Webhook URL</label>
-                <input type="text" id="discord_webhook" name="discord_webhook"
-                    placeholder="https://discord.com/api/webhooks/...">
-            </div>
-            <div class="form-actions">
-                <button type="submit" class="btn btn-primary">저장</button>
-            </div>
-        </form>
-    </div>
-</div>
 
-<!-- Logs Section (Placeholder) -->
-<div class="card settings-card" id="section-logs" style="margin-top: 20px;">
-    <div class="card-header">
-        <h3>📜 실행 로그</h3>
+        <!-- Purchase Settings -->
+        <div class="card settings-card" id="section-purchase">
+            <div class="card-header">
+                <h3>🎟️ 구매 설정 (5게임)</h3>
+            </div>
+            <form id="purchase-form">
+                <div id="games-container">
+                    <!-- JS will populate this -->
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">저장</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Deposit Settings -->
+        <div class="card settings-card" id="section-deposit">
+            <div class="card-header">
+                <h3>💰 예치금 자동 충전</h3>
+            </div>
+            <form id="deposit-form">
+                <div class="form-group">
+                    <label>충전 기준 금액 (이 금액 이하면 충전)</label>
+                    <input type="number" id="deposit_threshold" placeholder="예: 5000">
+                </div>
+                <div class="form-group">
+                    <label>충전할 금액</label>
+                    <select id="deposit_amount">
+                        <option value="5000">5,000원</option>
+                        <option value="10000">10,000원</option>
+                        <option value="20000">20,000원</option>
+                        <option value="30000">30,000원</option>
+                        <option value="50000">50,000원</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" id="btn-test-deposit" class="btn btn-secondary">충전 테스트 (OCR)</button>
+                    <button type="submit" class="btn btn-primary">저장</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Schedule Settings -->
+        <div class="card settings-card" id="section-schedule">
+            <div class="card-header">
+                <h3>📅 스케줄 설정</h3>
+            </div>
+            <form id="schedule-form">
+                <div class="form-group">
+                    <label>💰 자동 충전 (요일/시간)</label>
+                    <div class="schedule-inputs">
+                        <select id="deposit_day">
+                            <option value="Monday">월요일</option>
+                            <option value="Tuesday">화요일</option>
+                            <option value="Wednesday">수요일</option>
+                            <option value="Thursday">목요일</option>
+                            <option value="Friday">금요일</option>
+                            <option value="Saturday">토요일</option>
+                            <option value="Sunday">일요일</option>
+                        </select>
+                        <input type="time" id="deposit_time">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>🛒 자동 구매 (요일/시간)</label>
+                    <div class="schedule-inputs">
+                        <select id="buy_day">
+                            <option value="Monday">월요일</option>
+                            <option value="Tuesday">화요일</option>
+                            <option value="Wednesday">수요일</option>
+                            <option value="Thursday">목요일</option>
+                            <option value="Friday">금요일</option>
+                            <option value="Saturday">토요일</option>
+                            <option value="Sunday">일요일</option>
+                        </select>
+                        <input type="time" id="buy_time">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">저장</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- System Settings -->
+        <div class="card settings-card" id="section-system">
+            <div class="card-header">
+                <h3>⚙️ 시스템 설정</h3>
+            </div>
+            <form id="system-form">
+                <div class="form-group">
+                    <label>Discord Webhook URL</label>
+                    <input type="text" id="discord_webhook" name="discord_webhook"
+                        placeholder="https://discord.com/api/webhooks/...">
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">저장</button>
+                </div>
+            </form>
+        </div>
     </div>
-    <div class="log-viewer"
-        style="background: #000; padding: 10px; border-radius: 5px; height: 200px; overflow-y: scroll; font-family: monospace; color: #0f0;">
-        <p>[INFO] System started...</p>
-        <p>[INFO] Dashboard initialized.</p>
+
+    <!-- Logs Section -->
+    <div class="card settings-card" id="section-logs" style="margin-top: 20px;">
+        <div class="card-header">
+            <h3>📜 실행 로그</h3>
+        </div>
+        <div class="log-viewer"
+            style="background: #000; padding: 10px; border-radius: 5px; height: 200px; overflow-y: scroll; font-family: monospace; color: #0f0;">
+            <p>[INFO] System started...</p>
+            <p>[INFO] Dashboard initialized.</p>
+        </div>
     </div>
-</div>
+</div> <!-- End of main-dashboard -->
 {% endblock %}

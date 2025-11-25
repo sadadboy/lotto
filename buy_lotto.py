@@ -20,13 +20,27 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
 
     try:
         # 1. 구매 페이지로 이동 (이미 이동되어 있을 수 있지만 안전하게 확인)
+        # 1. 구매 페이지로 이동 (이미 이동되어 있을 수 있지만 안전하게 확인)
         if "TotalGame.jsp" not in page.url:
             logger.info("구매 페이지로 이동 중...")
             page.goto("https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40")
-            
-        # iframe 찾기
-        iframe_element = page.wait_for_selector('iframe#ifrm_tab', timeout=10000)
-        iframe = page.frame_locator('iframe#ifrm_tab')
+        
+        # 페이지 로드 대기 (네트워크 유휴 상태까지)
+        try:
+            page.wait_for_load_state('networkidle', timeout=10000)
+        except:
+            logger.warning("페이지 로드 대기 타임아웃 (진행함)")
+
+        # iframe 찾기 (타임아웃 30초로 증가)
+        logger.info("구매 프레임(iframe) 찾는 중...")
+        try:
+            iframe_element = page.wait_for_selector('iframe#ifrm_tab', timeout=30000)
+            iframe = page.frame_locator('iframe#ifrm_tab')
+        except Exception as e:
+            logger.error(f"iframe 찾기 실패. 현재 URL: {page.url}")
+            # 현재 화면 캡처 (디버깅용)
+            page.screenshot(path="iframe_timeout.png")
+            raise e
         
         # 2. 구매 가능 수량 확인
         # "발급가능수량 : 5 매" 텍스트 찾기
@@ -151,17 +165,35 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
             logger.warning("[Dry Run] 실제 구매를 진행하지 않습니다.")
             send_discord_message(f"🧪 [Dry Run] 구매 테스트 완료!\n" + "\n".join(purchased_details))
         else:
+            # 팝업 핸들러 등록 (모든 팝업에 대해 반응하도록 수정)
+            def handle_dialog(dialog):
+                logger.info(f"팝업 감지: {dialog.message} (Type: {dialog.type})")
+                try:
+                    dialog.accept()
+                    logger.info("팝업 수락 완료")
+                except Exception as e:
+                    logger.error(f"팝업 수락 실패: {e}")
+                
+            # 기존 리스너 제거 후 새로 등록
+            page.remove_listener("dialog", handle_dialog)
+            page.on("dialog", handle_dialog)
+
+            # 구매 버튼 클릭 전 스크린샷
+            page.screenshot(path="before_buy_click.png")
+            logger.info("구매 버튼 클릭 전 화면 저장: before_buy_click.png")
+
             # 구매하기 버튼 클릭
+            logger.info("구매하기 버튼 클릭 시도...")
             iframe.locator('#btnBuy').click()
             
-            # 팝업 확인 (확인/취소)
-            def handle_dialog(dialog):
-                logger.info(f"팝업 감지: {dialog.message}")
-                dialog.accept()
-                
-            page.on("dialog", handle_dialog)
+            # 클릭 후 처리 대기 (팝업이나 네트워크 요청 등)
+            page.wait_for_timeout(3000)
             
-            logger.success("구매 요청 완료!")
+            # 구매 후 스크린샷
+            page.screenshot(path="after_buy_click.png")
+            logger.info("구매 버튼 클릭 후 화면 저장: after_buy_click.png")
+            
+            logger.success("구매 요청 완료! (결과 스크린샷 확인 필요)")
             send_discord_message(f"✅ 구매 요청 완료!\n" + "\n".join(purchased_details))
             
     except Exception as e:

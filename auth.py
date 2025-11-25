@@ -6,18 +6,23 @@ def login(user_id, user_pw, headless=False):
     """
     동행복권 사이트에 로그인합니다.
     """
-    logger.info(f"브라우저 실행 중... (Headless: {headless})")
-    
-    # Playwright 컨텍스트 매니저를 함수 밖에서 관리해야 브라우저가 유지됨
-    # 여기서는 간단한 테스트를 위해 함수 내에서 실행하고 browser 객체를 반환하는 구조로 작성
-    # 실제로는 클래스로 관리하는 것이 좋음
-    
     playwright = sync_playwright().start()
-    # 헤드리스 모드 설정
-    browser = playwright.chromium.launch(headless=headless)
+    
+    # 헤드리스 모드 설정 (환경변수 우선)
+    import os
+    env_headless = os.getenv("HEADLESS", "false").lower() == "true"
+    # 함수 인자가 True이거나 환경변수가 true이면 헤드리스 모드
+    final_headless = headless or env_headless
+    
+    logger.info(f"브라우저 실행 중... (Headless: {final_headless})")
+    browser = playwright.chromium.launch(headless=final_headless)
     
     try:
-        context = browser.new_context()
+        # 모바일 리다이렉트 방지를 위해 User-Agent와 Viewport 설정
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080}
+        )
         page = context.new_page()
 
         logger.info("동행복권 로그인 페이지 이동 중...")

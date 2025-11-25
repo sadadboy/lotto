@@ -23,6 +23,10 @@ def load_config():
         logger.error(f"설정 파일 로드 실패: {e}")
         return None
 
+from security import SecurityManager
+
+# ... (imports)
+
 def buy_job():
     logger.info("⏰ 예약된 구매 작업을 시작합니다.")
     send_discord_message("⏰ 예약된 구매 작업을 시작합니다.")
@@ -31,8 +35,17 @@ def buy_job():
     if not config:
         return
 
+    security_manager = SecurityManager()
     user_id = config['account']['user_id']
-    user_pw = config['account']['user_pw']
+    # Decrypt password
+    encrypted_pw = config['account']['user_pw']
+    user_pw = security_manager.decrypt(encrypted_pw)
+    
+    if not user_pw:
+        logger.error("비밀번호 복호화 실패 또는 비어있음")
+        send_discord_message("❌ 비밀번호 복호화 실패")
+        return
+
     games_config = config['games']
     
     # Headless 모드는 Docker 환경을 고려하여 True로 설정 (추후 config에서 제어 가능)
