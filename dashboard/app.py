@@ -207,15 +207,22 @@ def stop_bot():
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    # TODO: 실제 예치금 조회 로직 연동 (로그 파일 파싱 또는 DB 연동 필요)
-    # 현재는 봇 실행 상태만 반환
-    status = "running" if bot_manager.is_running() else "stopped"
+    from status_manager import status_manager
+    status_data = status_manager.load_status()
     
-    return jsonify({
-        "status": status,
-        "balance": 0, # 임시 값
-        "last_run": "N/A"
-    })
+    # Process manager status overrides file status if running
+    real_status = "running" if bot_manager.is_running() else "stopped"
+    
+    # If file says running but process is dead, update file
+    if status_data.get("status") == "running" and real_status == "stopped":
+        status_manager.update_status("stopped")
+        status_data["status"] = "stopped"
+        
+    # If process is running, trust it (or force "running")
+    if real_status == "running":
+        status_data["status"] = "running"
+
+    return jsonify(status_data)
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():

@@ -1,0 +1,7 @@
+{
+    "status": "stopped",
+    "balance": 20000,
+    "last_run": "N/A",
+    "latest_ticket_img": "screenshots/test_ticket.png",
+    "version": "v1.1.0"
+}

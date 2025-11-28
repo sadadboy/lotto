@@ -6,7 +6,11 @@ secret.key
 # Logs and Debugging
 *.log
 *.png
-*.html
+*_dump.html
+*_page.html
+*_result.html
+*_error.html
+login_failed.html
 debug_cells/
 
 # Python

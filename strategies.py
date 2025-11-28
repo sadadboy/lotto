@@ -36,10 +36,11 @@ def generate_numbers(mode, manual_numbers=None, analysis_range=50):
         return sorted(manual_numbers)
         
     elif mode == 'ai':
-        # TODO: 딥러닝 모델 연동
-        # 현재는 임시로 랜덤 반환
-        logger.info("AI 모드: 아직 모델이 없으므로 랜덤 번호를 반환합니다.")
-        return get_random_numbers()
+        try:
+            return predict_ai_numbers()
+        except Exception as e:
+            logger.error(f"AI 예측 실패: {e}")
+            return get_random_numbers()
         
     elif mode == 'max_first':
         return get_max_first_numbers(analysis_range)
@@ -47,6 +48,75 @@ def generate_numbers(mode, manual_numbers=None, analysis_range=50):
     else:
         logger.warning(f"알 수 없는 모드: {mode}. 랜덤 번호를 반환합니다.")
         return get_random_numbers()
+
+def predict_ai_numbers():
+    """
+    학습된 LSTM 모델을 사용하여 번호를 예측합니다.
+    """
+    import numpy as np
+    from tensorflow.keras.models import load_model
+    import os
+    
+    model_path = "lotto_model.h5"
+    if not os.path.exists(model_path):
+        logger.warning("모델 파일(lotto_model.h5)이 없습니다. 먼저 모델을 학습시켜주세요.")
+        return get_random_numbers()
+    
+    logger.info("AI 모델 로드 중...")
+    model = load_model(model_path)
+    
+    # 최근 10회차 데이터 가져오기 (학습 시 window_size=10 사용 가정)
+    window_size = 10
+    recent_numbers = get_recent_draws(window_size)
+    
+    if len(recent_numbers) < window_size:
+        logger.warning("최근 데이터가 부족하여 AI 예측을 할 수 없습니다.")
+        return get_random_numbers()
+        
+    # 전처리 (One-hot encoding)
+    def to_one_hot(nums):
+        one_hot = np.zeros(45)
+        for n in nums:
+            one_hot[int(n)-1] = 1
+        return one_hot
+
+    input_seq = np.array([to_one_hot(nums) for nums in recent_numbers])
+    input_seq = input_seq.reshape(1, window_size, 45) # (1, 10, 45)
+    
+    # 예측
+    prediction = model.predict(input_seq, verbose=0)[0] # (45,)
+    
+    # 확률이 높은 상위 6개 선택
+    # argsort는 오름차순이므로 뒤에서 6개 자르고 뒤집음
+    top_indices = prediction.argsort()[-6:][::-1]
+    
+    # 인덱스(0~44)를 번호(1~45)로 변환
+    predicted_numbers = sorted([i + 1 for i in top_indices])
+    
+    logger.info(f"AI 예측 번호: {predicted_numbers}")
+    return predicted_numbers
+
+def get_recent_draws(count):
+    """최근 N회차의 당첨 번호를 가져옵니다."""
+    # analysis.py의 fetch_lotto_data 재사용 또는 직접 구현
+    # 여기서는 strategies.py 내의 fetch_lotto_numbers 사용
+    
+    latest_drw = get_latest_drw_no()
+    results = []
+    
+    # 최신 회차부터 역순으로 N개 수집
+    # 주의: 최신 회차가 아직 추첨 안 됐을 수도 있으니 확인 필요하지만
+    # get_latest_drw_no는 날짜 기준 계산이므로 추첨일(토요일) 지나면 증가함.
+    # 안전하게 최신부터 과거로 가면서 데이터 있는 것만 수집
+    
+    current = latest_drw
+    while len(results) < count and current > 0:
+        nums = fetch_lotto_numbers(current)
+        if nums:
+            results.insert(0, nums) # 과거 데이터를 앞에 추가 (시계열 순서 유지)
+        current -= 1
+        
+    return results
 
 def get_random_numbers(count=6, exclude=None):
     """1~45 사이의 중복 없는 랜덤 번호를 반환합니다."""

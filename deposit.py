@@ -299,6 +299,11 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None):
         
         if final_balance > initial_balance:
             logger.success(f"충전 성공! (+{final_balance - initial_balance}원)")
+            try:
+                from status_manager import status_manager
+                status_manager.update_balance(final_balance)
+            except Exception as e:
+                logger.warning(f"상태 업데이트 실패: {e}")
         elif final_balance == -1:
              logger.warning("충전 후 예치금 확인 실패.")
         else:

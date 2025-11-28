@@ -1,6 +1,7 @@
 from playwright.sync_api import Page
 from loguru import logger
 import time
+import os
 import strategies
 from notification import send_discord_message
 
@@ -24,6 +25,14 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
         if "TotalGame.jsp" not in page.url:
             logger.info("구매 페이지로 이동 중...")
             page.goto("https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40")
+            
+            # [Step 3] 구매 페이지 이동 직후 스크린샷
+            try:
+                from notification import send_discord_file
+                page.screenshot(path="step3_purchase_page.png")
+                send_discord_file("step3_purchase_page.png", "📸 [Step 3] 구매 페이지 이동")
+            except Exception as e:
+                logger.warning(f"스텝 3 스크린샷 실패: {e}")
         
         # 페이지 로드 대기 (네트워크 유휴 상태까지)
         try:
@@ -174,8 +183,16 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
                 except Exception as e:
                     logger.error(f"팝업 수락 실패: {e}")
                 
-            # 기존 리스너 제거 후 새로 등록
-            page.remove_listener("dialog", handle_dialog)
+            # 팝업 핸들러 등록 (모든 팝업에 대해 반응하도록 수정)
+            def handle_dialog(dialog):
+                logger.info(f"팝업 감지: {dialog.message} (Type: {dialog.type})")
+                try:
+                    dialog.accept()
+                    logger.info("팝업 수락 완료")
+                except Exception as e:
+                    logger.error(f"팝업 수락 실패: {e}")
+                
+            # 리스너 등록 (페이지가 매번 새로 생성되므로 remove 불필요)
             page.on("dialog", handle_dialog)
 
             # 구매 버튼 클릭 전 스크린샷
@@ -186,6 +203,32 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
             logger.info("구매하기 버튼 클릭 시도...")
             iframe.locator('#btnBuy').click()
             
+            # [추가] HTML 레이어 팝업 처리 ("구매하시겠습니까?")
+            try:
+                # 팝업이 뜰 때까지 잠시 대기 (최대 5초)
+                # 구조: <div class="box"> ... <span class="layer-message">구매하시겠습니까?</span> ... <input value="확인">
+                layer_popup = iframe.locator('.box .noti .layer-message', has_text="구매하시겠습니까?")
+                
+                if layer_popup.is_visible(timeout=5000):
+                    logger.info("구매 확인 레이어 팝업 감지! 확인 버튼 클릭 시도...")
+                    
+                    # 확인 버튼 찾기 (같은 .box 내의 .btns input[value="확인"])
+                    # 정확도를 위해 box 컨테이너를 먼저 찾음
+                    box = iframe.locator('.box', has=iframe.locator('.layer-message', has_text="구매하시겠습니까?"))
+                    confirm_btn = box.locator('input[value="확인"]')
+                    
+                    if confirm_btn.is_visible():
+                        confirm_btn.click()
+                        logger.info("레이어 팝업 '확인' 버튼 클릭 완료")
+                    else:
+                        logger.warning("레이어 팝업은 찾았으나 확인 버튼을 찾을 수 없습니다.")
+                else:
+                    logger.debug("구매 확인 레이어 팝업이 뜨지 않았습니다 (정상 진행).")
+                    
+            except Exception as e:
+                # 팝업이 안 뜨면 타임아웃 에러가 날 수 있으므로 로그만 남기고 진행
+                logger.debug(f"레이어 팝업 확인 중 특이사항(없으면 무시): {e}")
+
             # 클릭 후 처리 대기 (팝업이나 네트워크 요청 등)
             page.wait_for_timeout(3000)
             
@@ -196,12 +239,88 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
             logger.success("구매 요청 완료! (결과 스크린샷 확인 필요)")
             send_discord_message(f"✅ 구매 요청 완료!\n" + "\n".join(purchased_details))
             
+            # [추가] 구매 후 예치금 갱신 및 구매내역 스크린샷
+            try:
+                # 1. 예치금 갱신
+                page.reload()
+                time.sleep(2)
+                import lotto
+                from status_manager import status_manager
+                
+                new_balance = lotto.check_deposit(page)
+                if new_balance != -1:
+                    status_manager.update_balance(new_balance)
+                    logger.info(f"구매 후 예치금 갱신: {new_balance}원")
+                    
+                # 2. 구매내역 스크린샷 (가장 최근 내역)
+                logger.info("구매내역 페이지로 이동하여 인증샷 촬영...")
+                page.goto("https://www.dhlottery.co.kr/myPage.do?method=lottoBuyListView")
+                
+                # 첫 번째 행의 '선택번호/복권번호' 링크 찾기
+                # 테이블 구조: .tbl_data tbody tr:first-child td:nth-child(4) a
+                # 팝업 링크: javascript:openDetail(...)
+                
+                latest_link = page.locator('.tbl_data tbody tr').first.locator('td').nth(3).locator('a')
+                if latest_link.is_visible():
+                    logger.info("최근 구매내역 발견, 상세 팝업 오픈...")
+                    
+                    with page.expect_popup() as popup_info:
+                        latest_link.click()
+                    
+                    popup = popup_info.value
+                    popup.wait_for_load_state()
+                    time.sleep(2)
+                    
+                    # 팝업 스크린샷
+                    ticket_img_name = f"ticket_{int(time.time())}.png"
+                    # 대시보드 static 폴더에도 저장 (웹 표시용)
+                    dashboard_static_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dashboard', 'static', 'screenshots')
+                    if not os.path.exists(dashboard_static_path):
+                        os.makedirs(dashboard_static_path)
+                        
+                    ticket_path = os.path.join(dashboard_static_path, ticket_img_name)
+                    popup.screenshot(path=ticket_path)
+                    logger.info(f"구매 인증샷 저장 완료: {ticket_path}")
+                    
+                    # 상태 업데이트 (웹 경로)
+                    web_path = f"screenshots/{ticket_img_name}"
+                    status_manager.update_ticket_image(web_path)
+                    
+                    # 디스코드 전송
+                    from notification import send_discord_file
+                    send_discord_file(ticket_path, "🎫 **최근 구매 영수증**")
+                    
+                    popup.close()
+                else:
+                    logger.warning("구매내역을 찾을 수 없습니다.")
+                    
+            except Exception as e:
+                logger.error(f"구매 후 처리(예치금/스샷) 중 오류: {e}")
+            
     except Exception as e:
         logger.error(f"구매 프로세스 중 오류 발생: {e}")
         send_discord_message(f"❌ 구매 실패: {str(e)}")
+        
+        # 스크린샷 및 HTML 덤프 전송
         try:
-            page.screenshot(path="buy_error.png")
-            logger.info("오류 화면 저장: buy_error.png")
-        except:
-            pass
+            from notification import send_discord_file
+            
+            # 스크린샷
+            screenshot_path = "buy_error.png"
+            page.screenshot(path=screenshot_path)
+            send_discord_file(screenshot_path, "📸 오류 화면 스크린샷")
+            
+            # HTML 덤프 (선택사항, 너무 크면 생략 가능하지만 디버깅에 유용)
+            # html_path = "buy_error.html"
+            # with open(html_path, "w", encoding="utf-8") as f:
+            #     f.write(page.content())
+            # send_discord_file(html_path, "📄 오류 페이지 HTML")
+            
+            # iframe 타임아웃 스크린샷이 있다면 전송
+            if os.path.exists("iframe_timeout.png"):
+                 send_discord_file("iframe_timeout.png", "📸 iframe 타임아웃 스크린샷")
+
+        except Exception as ex:
+            logger.error(f"오류 보고 중 추가 오류: {ex}")
+            
         raise e
