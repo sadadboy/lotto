@@ -294,7 +294,8 @@ def test_deposit():
         # seeing it works is good, but if it's a web dashboard, they can't see the browser if it's on a server.
         # Assuming local execution for now as per context.
         
-        browser, page = login(user_id, user_pw, headless=False)
+        # Run Test (Headless=True for cloud compatibility)
+        browser, page = login(user_id, user_pw, headless=True)
         
         try:
             # Test with 5000 won

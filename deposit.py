@@ -4,11 +4,14 @@ import os
 from loguru import logger
 import lotto
 
+from notification import send_discord_message, send_discord_file
+
 def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None):
     """
     예치금 충전 요청을 수행합니다. (간편 충전)
     """
     logger.info(f"예치금 충전 요청 시작 (금액: {amount}원)")
+    send_discord_message(f"💰 **예치금 충전 테스트 시작**\n금액: {amount}원")
     
     try:
         # 초기 예치금 확인
@@ -94,6 +97,10 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None):
             # 키패드 스크린샷 캡처
             screenshot_path = f"keypad_try_{attempt}.png"
             keypad_elem.screenshot(path=screenshot_path)
+            try:
+                send_discord_file(screenshot_path, f"🔐 보안 키패드 캡처 (시도 {attempt+1})")
+            except:
+                pass
             
             # 이미지 로드 및 전처리
             img = cv2.imread(screenshot_path)
@@ -299,6 +306,7 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None):
         
         if final_balance > initial_balance:
             logger.success(f"충전 성공! (+{final_balance - initial_balance}원)")
+            send_discord_message(f"✅ **충전 성공!**\n충전 전: {initial_balance}원\n충전 후: {final_balance}원")
             try:
                 from status_manager import status_manager
                 status_manager.update_balance(final_balance)
@@ -306,16 +314,23 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None):
                 logger.warning(f"상태 업데이트 실패: {e}")
         elif final_balance == -1:
              logger.warning("충전 후 예치금 확인 실패.")
+             send_discord_message("⚠️ 충전 후 예치금 확인 실패")
         else:
             logger.error("충전 실패: 예치금이 변경되지 않았습니다.")
             # 실패 시 스크린샷
             page.screenshot(path="deposit_fail_main.png")
+            send_discord_file("deposit_fail_main.png", "❌ **충전 실패** (잔액 변동 없음)")
 
     except Exception as e:
         logger.error(f"충전 요청 실패: {e}")
+        send_discord_message(f"❌ **충전 요청 중 오류 발생**\n{str(e)}")
+        
         if 'popup' in locals() and not popup.is_closed():
             popup.screenshot(path="popup_input_fail.png")
+            send_discord_file("popup_input_fail.png", "📸 팝업 오류 화면")
+            
         page.screenshot(path="deposit_error.png")
+        send_discord_file("deposit_error.png", "📸 메인 화면 오류")
         raise e
 
 if __name__ == "__main__":
