@@ -1,48 +1,47 @@
-import zipfile
 import os
+import zipfile
+import datetime
 
 def create_release_zip():
-    files_to_include = [
-        'Dockerfile',
-        'docker-compose.yml',
-        'requirements.txt',
-        'main.py',
-        'buy_lotto.py',
-        'strategies.py',
-        'auth.py',
-        'notification.py',
-        'security.py'
-    ]
+    # 제외할 파일 및 폴더 목록
+    EXCLUDE_DIRS = {'.git', '.venv', 'venv', '__pycache__', 'logs', 'screenshots', 'debug_cells', '.idea', '.vscode', '.gemini'}
+    EXCLUDE_FILES = {'config.json', '.env', 'secret.key', 'bot.log', 'bot.pid'}
+    EXCLUDE_EXTENSIONS = {'.pyc', '.pyo', '.pyd', '.DS_Store', '.zip'}
+
+    # 현재 날짜로 파일명 생성
+    date_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_filename = f"lotto_release_{date_str}.zip"
     
-    dirs_to_include = [
-        'dashboard'
-    ]
+    # 프로젝트 루트 디렉토리
+    root_dir = os.path.dirname(os.path.abspath(__file__))
     
-    zip_filename = 'lotto-bot-release.zip'
+    print(f"📦 패키징 시작: {zip_filename}")
     
     with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # Add individual files
-        for file in files_to_include:
-            if os.path.exists(file):
-                zipf.write(file)
-                print(f"Added: {file}")
-            else:
-                print(f"Warning: {file} not found!")
-        
-        # Add directories
-        for directory in dirs_to_include:
-            if os.path.exists(directory):
-                for root, _, files in os.walk(directory):
-                    for file in files:
-                        if '__pycache__' in root:
-                            continue
-                        file_path = os.path.join(root, file)
-                        zipf.write(file_path)
-                        print(f"Added: {file_path}")
-            else:
-                print(f"Warning: {directory} not found!")
+        for foldername, subfolders, filenames in os.walk(root_dir):
+            # 제외할 폴더 필터링
+            subfolders[:] = [d for d in subfolders if d not in EXCLUDE_DIRS]
+            
+            for filename in filenames:
+                # 제외할 파일 필터링
+                if filename in EXCLUDE_FILES:
+                    continue
                 
-    print(f"\n✅ Created {zip_filename} successfully!")
+                # 제외할 확장자 필터링
+                _, ext = os.path.splitext(filename)
+                if ext in EXCLUDE_EXTENSIONS:
+                    continue
+                
+                # 파일 경로 생성
+                file_path = os.path.join(foldername, filename)
+                arcname = os.path.relpath(file_path, root_dir)
+                
+                # ZIP에 추가
+                print(f"  + {arcname}")
+                zipf.write(file_path, arcname)
+                
+    print(f"✅ 패키징 완료: {zip_filename} ({os.path.getsize(zip_filename) / 1024:.2f} KB)")
+    print("ℹ️ 이 파일을 WinSCP 등을 통해 오라클 클라우드로 전송하세요.")
 
 if __name__ == "__main__":
     create_release_zip()
