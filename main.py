@@ -66,13 +66,46 @@ def buy_job():
         send_discord_message(f"❌ 구매 작업 중 오류 발생: {e}")
     finally:
         if browser:
-            browser.close()
+            from auth import close_browser
+            close_browser(browser)
             logger.info("브라우저 종료")
 
 def deposit_job():
     # 예치금 충전 로직 (현재 보류 중)
     logger.info("예치금 충전 작업 (현재 비활성화됨)")
     pass
+
+def check_winning_job():
+    logger.info("⏰ 예약된 당첨 확인 작업을 시작합니다.")
+    send_discord_message("⏰ 예약된 당첨 확인 작업을 시작합니다.")
+    
+    config = load_config()
+    if not config:
+        return
+
+    security_manager = SecurityManager()
+    user_id = config['account']['user_id']
+    encrypted_pw = config['account']['user_pw']
+    user_pw = security_manager.decrypt(encrypted_pw)
+    
+    if not user_pw:
+        logger.error("비밀번호 복호화 실패")
+        return
+
+    from check_winning import check_winning_result
+    
+    browser = None
+    try:
+        browser, page = login(user_id, user_pw, headless=True)
+        check_winning_result(page)
+    except Exception as e:
+        logger.error(f"당첨 확인 중 오류 발생: {e}")
+        send_discord_message(f"❌ 당첨 확인 중 오류 발생: {e}")
+    finally:
+        if browser:
+            from auth import close_browser
+            close_browser(browser)
+            logger.info("브라우저 종료")
 
 def run_scheduler():
     logger.info("🤖 로또 봇 스케줄러가 시작되었습니다.")
@@ -112,6 +145,15 @@ def run_scheduler():
     # deposit_time = schedule_config.get('deposit_time', '18:00')
     # if deposit_day in days:
     #     days[deposit_day].at(deposit_time).do(deposit_job)
+
+    # 당첨 확인 스케줄 (기본값: 토요일 23:00)
+    check_day = schedule_config.get('check_day', 'Saturday')
+    check_time = schedule_config.get('check_time', '23:00')
+    
+    if check_day in days:
+        days[check_day].at(check_time).do(check_winning_job)
+        logger.info(f"📅 당첨 확인 예약: 매주 {check_day} {check_time}")
+        send_discord_message(f"📅 당첨 확인 예약됨: 매주 {check_day} {check_time}")
 
     while True:
         schedule.run_pending()

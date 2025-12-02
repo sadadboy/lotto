@@ -1,13 +1,4 @@
 document.addEventListener('DOMContentLoaded', function () {
-    // Mobile Menu Toggle
-    const menuToggle = document.getElementById('menuToggle');
-    const sidebarNav = document.getElementById('sidebarNav');
-    if (menuToggle && sidebarNav) {
-        menuToggle.addEventListener('click', function () {
-            sidebarNav.classList.toggle('active');
-        });
-    }
-
     loadConfig();
     updateStatus();
 
@@ -18,144 +9,117 @@ document.addEventListener('DOMContentLoaded', function () {
     setInterval(updateLogs, 3000);
 
     // 계정 설정 저장
-    const accountBtn = document.querySelector('#account-form button[type="submit"]');
-    if (accountBtn) {
-        accountBtn.addEventListener('click', function (e) {
-            e.preventDefault();
-            saveConfig('account');
-        });
-    }
+    document.querySelector('#account-form button[type="submit"]').addEventListener('click', function (e) {
+        e.preventDefault();
+        saveConfig('account');
+    });
 
     // 구매 설정 저장
-    const purchaseBtn = document.querySelector('#purchase-form button[type="submit"]');
-    if (purchaseBtn) {
-        purchaseBtn.addEventListener('click', function (e) {
-            e.preventDefault();
-            saveConfig('purchase');
-        });
-    }
+    document.querySelector('#purchase-form button[type="submit"]').addEventListener('click', function (e) {
+        e.preventDefault();
+        saveConfig('purchase');
+    });
 
     // 예치금 설정 저장
-    const depositBtn = document.querySelector('#deposit-form button[type="submit"]');
-    if (depositBtn) {
-        depositBtn.addEventListener('click', function (e) {
-            e.preventDefault();
-            saveConfig('deposit');
-        });
-    }
+    document.querySelector('#deposit-form button[type="submit"]').addEventListener('click', function (e) {
+        e.preventDefault();
+        saveConfig('deposit');
+    });
 
     // 스케줄 설정 저장
-    const scheduleBtn = document.querySelector('#schedule-form button[type="submit"]');
-    if (scheduleBtn) {
-        scheduleBtn.addEventListener('click', function (e) {
-            e.preventDefault();
-            saveConfig('schedule');
-        });
-    }
+    document.querySelector('#schedule-form button[type="submit"]').addEventListener('click', function (e) {
+        e.preventDefault();
+        saveConfig('schedule');
+    });
 
     // 시스템 설정 저장
-    const systemBtn = document.querySelector('#system-form button[type="submit"]');
-    if (systemBtn) {
-        systemBtn.addEventListener('click', function (e) {
-            e.preventDefault();
-            saveConfig('system');
-        });
-    }
+    document.querySelector('#system-form button[type="submit"]').addEventListener('click', function (e) {
+        e.preventDefault();
+        saveConfig('system');
+    });
 
     // 봇 시작
-    const startBtn = document.getElementById('btn-start');
-    if (startBtn) {
-        startBtn.addEventListener('click', function () {
-            fetch('/api/bot/start', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    alert(data.message);
-                    updateStatus();
-                })
-                .catch(error => console.error('Error starting bot:', error));
-        });
-    }
+    document.getElementById('btn-start').addEventListener('click', function () {
+        fetch('/api/bot/start', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                updateStatus();
+            })
+            .catch(error => console.error('Error starting bot:', error));
+    });
 
     // 봇 중지
-    const stopBtn = document.getElementById('btn-stop');
-    if (stopBtn) {
-        stopBtn.addEventListener('click', function () {
-            fetch('/api/bot/stop', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    alert(data.message);
-                    updateStatus();
-                })
-                .catch(error => console.error('Error stopping bot:', error));
-        });
-    }
+    document.getElementById('btn-stop').addEventListener('click', function () {
+        fetch('/api/bot/stop', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                updateStatus();
+            })
+            .catch(error => console.error('Error stopping bot:', error));
+    });
 
     // 로그인 테스트
-    const loginTestBtn = document.getElementById('btn-test-login');
-    if (loginTestBtn) {
-        loginTestBtn.addEventListener('click', function () {
-            const userId = document.getElementById('user_id').value;
-            const userPw = document.getElementById('user_pw').value;
+    document.getElementById('btn-test-login').addEventListener('click', function () {
+        const userId = document.getElementById('user_id').value;
+        const userPw = document.getElementById('user_pw').value;
 
-            if (!userId || !userPw) {
-                alert('아이디와 비밀번호를 입력해주세요.');
-                return;
-            }
+        if (!userId || !userPw) {
+            alert('아이디와 비밀번호를 입력해주세요.');
+            return;
+        }
 
-            this.disabled = true;
-            this.textContent = '테스트 중...';
+        this.disabled = true;
+        this.textContent = '테스트 중...';
 
-            fetch('/api/test/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    user_id: userId,
-                    user_pw: userPw
-                })
+        fetch('/api/test/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userId,
+                user_pw: userPw
             })
-                .then(response => response.json())
-                .then(data => {
-                    alert(data.message);
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('로그인 테스트 중 오류가 발생했습니다.');
-                })
-                .finally(() => {
-                    document.getElementById('btn-test-login').disabled = false;
-                    document.getElementById('btn-test-login').textContent = '로그인 테스트';
-                });
-        });
-    }
+        })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('로그인 테스트 중 오류가 발생했습니다.');
+            })
+            .finally(() => {
+                document.getElementById('btn-test-login').disabled = false;
+                document.getElementById('btn-test-login').textContent = '로그인 테스트';
+            });
+    });
 
     // 예치금 충전 테스트 (OCR)
-    const depositTestBtn = document.getElementById('btn-test-deposit');
-    if (depositTestBtn) {
-        depositTestBtn.addEventListener('click', function () {
-            if (!confirm("충전 테스트를 시작하시겠습니까?\n실제 브라우저가 열리고 5,000원 충전을 시도합니다.\n(결제 비밀번호 입력까지만 진행하고 실제 결제는 하지 않을 수 있습니다.)")) {
-                return;
-            }
+    document.getElementById('btn-test-deposit').addEventListener('click', function () {
+        if (!confirm("충전 테스트를 시작하시겠습니까?\n실제 브라우저가 열리고 5,000원 충전을 시도합니다.\n(결제 비밀번호 입력까지만 진행하고 실제 결제는 하지 않을 수 있습니다.)")) {
+            return;
+        }
 
-            this.disabled = true;
-            this.textContent = '테스트 중...';
+        this.disabled = true;
+        this.textContent = '테스트 중...';
 
-            fetch('/api/test/deposit', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    alert(data.message);
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('충전 테스트 중 오류가 발생했습니다.');
-                })
-                .finally(() => {
-                    document.getElementById('btn-test-deposit').disabled = false;
-                    document.getElementById('btn-test-deposit').textContent = '충전 테스트 (OCR)';
-                });
-        });
-    }
+        fetch('/api/test/deposit', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('충전 테스트 중 오류가 발생했습니다.');
+            })
+            .finally(() => {
+                document.getElementById('btn-test-deposit').disabled = false;
+                document.getElementById('btn-test-deposit').textContent = '충전 테스트 (OCR)';
+            });
+    });
 });
 
 function renderGameSlots(games) {
@@ -267,9 +231,7 @@ function loadConfig() {
             if (statusText) statusText.textContent = "화면 구성 중...";
 
             // Hide Loading Screen
-            if (loadingScreen) {
-                loadingScreen.style.display = 'none';
-            }
+            if (loadingScreen) loadingScreen.style.display = 'none';
 
             // Check if account is configured
             const userId = config.account ? config.account.user_id : '';
@@ -329,6 +291,8 @@ function populateDashboard(config) {
         document.getElementById('deposit_time').value = config.schedule.deposit_time || '18:00';
         document.getElementById('buy_day').value = config.schedule.buy_day || 'Saturday';
         document.getElementById('buy_time').value = config.schedule.buy_time || '10:00';
+        document.getElementById('check_day').value = config.schedule.check_day || 'Saturday';
+        document.getElementById('check_time').value = config.schedule.check_time || '23:00';
     }
 
     // System
@@ -410,7 +374,9 @@ function saveConfig(source) {
             deposit_day: document.getElementById('deposit_day').value,
             deposit_time: document.getElementById('deposit_time').value,
             buy_day: document.getElementById('buy_day').value,
-            buy_time: document.getElementById('buy_time').value
+            buy_time: document.getElementById('buy_time').value,
+            check_day: document.getElementById('check_day').value,
+            check_time: document.getElementById('check_time').value
         },
         system: {
             discord_webhook: document.getElementById('discord_webhook').value
@@ -448,38 +414,33 @@ function updateStatus() {
     fetch('/api/status')
         .then(response => response.json())
         .then(data => {
-            // Balance Update
-            const balanceElem = document.getElementById('balance-display');
-            if (balanceElem) {
-                balanceElem.textContent = (data.balance || 0).toLocaleString() + '원';
-            }
+            document.getElementById('balance-display').textContent = data.balance.toLocaleString() + '원';
+            document.getElementById('bot-status').textContent = data.status === 'running' ? 'Running' : 'Stopped';
 
-            // Status Update
-            const statusElem = document.getElementById('bot-status');
-            if (statusElem) {
-                statusElem.textContent = data.status === 'running' ? 'Running' : 'Stopped';
-            }
-
-            // Indicator Update
-            const indicator = document.querySelector('.status-indicator');
-            if (indicator) {
-                if (data.status === 'running') {
-                    indicator.innerHTML = '<span class="dot running"></span> Bot Running';
-                } else {
-                    indicator.innerHTML = '<span class="dot stopped"></span> Bot Stopped';
-                }
-            }
-
-            // Latest Ticket Image Update
-            const ticketCard = document.getElementById('latestTicketCard');
-            const ticketImg = document.getElementById('latestTicketImg');
-
-            if (data.latest_ticket_img) {
-                if (ticketCard) ticketCard.style.display = 'block';
-                // Add timestamp to prevent caching
-                if (ticketImg) ticketImg.src = `/static/${data.latest_ticket_img}?t=${new Date().getTime()}`;
+            const dot = document.querySelector('.status-indicator .dot');
+            if (data.status === 'running') {
+                dot.classList.remove('stopped');
+                dot.classList.add('running');
+                document.querySelector('.status-indicator').innerHTML = '<span class="dot running"></span> Bot Running';
             } else {
-                if (ticketCard) ticketCard.style.display = 'none';
+                dot.classList.remove('running');
+                dot.classList.add('stopped');
+                document.querySelector('.status-indicator').innerHTML = '<span class="dot stopped"></span> Bot Stopped';
+            }
+
+            // Update latest result text
+            const resultText = document.getElementById('latest-result-text');
+            if (resultText && data.latest_result) {
+                resultText.textContent = data.latest_result;
+
+                // Optional: Color coding
+                if (data.latest_result.includes('당첨')) {
+                    resultText.style.color = '#9ece6a'; // Green
+                } else if (data.latest_result.includes('낙첨')) {
+                    resultText.style.color = '#f7768e'; // Red
+                } else {
+                    resultText.style.color = '#fff'; // White
+                }
             }
         })
         .catch(error => console.error('Error updating status:', error));

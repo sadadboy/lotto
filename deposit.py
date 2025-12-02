@@ -9,19 +9,6 @@ from notification import send_discord_message, send_discord_file
 def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None):
     """
     예치금 충전 요청을 수행합니다. (간편 충전)
-    """
-    logger.info(f"예치금 충전 요청 시작 (금액: {amount}원)")
-    send_discord_message(f"💰 **예치금 충전 테스트 시작**\n금액: {amount}원")
-    
-    try:
-        # 초기 예치금 확인
-        initial_balance = lotto.check_deposit(page)
-        logger.info(f"충전 전 예치금: {initial_balance}원")
-
-        # 예치금 충전 페이지로 이동
-        logger.info("충전 페이지로 이동 중...")
-        page.goto("https://dhlottery.co.kr/payment.do?method=payment")
-        time.sleep(2)
 
         # "간편 충전" 탭 선택 (Tab 1)
         logger.info("간편 충전 탭 선택")
@@ -296,47 +283,6 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None):
             logger.info("팝업이 닫혔습니다. 메인 페이지를 새로고침하여 잔액을 확인합니다.")
         else:
             logger.info("팝업이 아직 열려있습니다. 결과를 캡처합니다.")
-            popup.screenshot(path="deposit_result.png")
-        
-        # 메인 페이지 새로고침 및 잔액 확인
-        page.reload()
-        time.sleep(2)
-        final_balance = lotto.check_deposit(page)
-        logger.info(f"충전 후 예치금: {final_balance}원")
-        
-        if final_balance > initial_balance:
-            logger.success(f"충전 성공! (+{final_balance - initial_balance}원)")
-            send_discord_message(f"✅ **충전 성공!**\n충전 전: {initial_balance}원\n충전 후: {final_balance}원")
-            try:
-                from status_manager import status_manager
-                status_manager.update_balance(final_balance)
-            except Exception as e:
-                logger.warning(f"상태 업데이트 실패: {e}")
-        elif final_balance == -1:
-             logger.warning("충전 후 예치금 확인 실패.")
-             send_discord_message("⚠️ 충전 후 예치금 확인 실패")
-        else:
-            logger.error("충전 실패: 예치금이 변경되지 않았습니다.")
-            # 실패 시 스크린샷
-            page.screenshot(path="deposit_fail_main.png")
-            send_discord_file("deposit_fail_main.png", "❌ **충전 실패** (잔액 변동 없음)")
-
-    except Exception as e:
-        logger.error(f"충전 요청 실패: {e}")
-        send_discord_message(f"❌ **충전 요청 중 오류 발생**\n{str(e)}")
-        
-        if 'popup' in locals() and not popup.is_closed():
-            popup.screenshot(path="popup_input_fail.png")
-            send_discord_file("popup_input_fail.png", "📸 팝업 오류 화면")
-            
-        page.screenshot(path="deposit_error.png")
-        send_discord_file("deposit_error.png", "📸 메인 화면 오류")
-        raise e
-
-if __name__ == "__main__":
-    # 테스트용 실행 코드
-    from auth import login
-    from dotenv import load_dotenv
     import sys
     
     load_dotenv()

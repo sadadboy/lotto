@@ -61,4 +61,7 @@ class StatusManager:
         # For dashboard, we might need to copy it to static folder
         self.save_status({"latest_ticket_img": image_path})
 
+    def update_latest_result(self, result_text):
+        self.save_status({"latest_result": result_text})
+
 status_manager = StatusManager()

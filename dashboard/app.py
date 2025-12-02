@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 import json
 import os
 import sys
@@ -207,22 +207,34 @@ def stop_bot():
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    from status_manager import status_manager
-    status_data = status_manager.load_status()
-    
-    # Process manager status overrides file status if running
-    real_status = "running" if bot_manager.is_running() else "stopped"
-    
-    # If file says running but process is dead, update file
-    if status_data.get("status") == "running" and real_status == "stopped":
-        status_manager.update_status("stopped")
-        status_data["status"] = "stopped"
-        
-    # If process is running, trust it (or force "running")
-    if real_status == "running":
-        status_data["status"] = "running"
+    # 봇 실행 상태 확인
+    status = "running" if bot_manager.is_running() else "stopped"
 
-    return jsonify(status_data)
+    # 상태 파일에서 정보 읽기
+    try:
+        from status_manager import status_manager
+        current_status = status_manager.load_status() # get_status() -> load_status()
+        balance = current_status.get('balance', 0)
+        last_run = current_status.get('last_run', 'N/A')
+        latest_result = current_status.get('latest_result', '미확인')
+    except Exception as e:
+        print(f"[DEBUG] Status load error: {e}")
+        balance = 0
+        last_run = "N/A"
+        latest_result = "미확인"
+
+    return jsonify({
+        "status": status,
+        "balance": balance,
+        "last_run": last_run,
+        "latest_result": latest_result
+    })
+
+@app.route('/api/images/<filename>')
+def serve_image(filename):
+    # 루트 디렉토리의 이미지 파일 서빙
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return send_from_directory(root_dir, filename)
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
@@ -258,7 +270,8 @@ def test_login():
         # 로그인 성공 시 auth.login 내부에서 성공 로그가 찍히고 반환됨
         # 실패 시 예외가 발생할 것임
         
-        browser.close()
+        from auth import close_browser
+        close_browser(browser)
         return jsonify({"status": "success", "message": "로그인 테스트 성공! 계정 정보가 유효합니다."})
         
     except Exception as e:
@@ -294,7 +307,6 @@ def test_deposit():
         # seeing it works is good, but if it's a web dashboard, they can't see the browser if it's on a server.
         # Assuming local execution for now as per context.
         
-        # Run Test (Headless=True for cloud compatibility)
         browser, page = login(user_id, user_pw, headless=True)
         
         try:
@@ -305,7 +317,8 @@ def test_deposit():
             message = f"충전 테스트 실패: {str(e)}"
             raise e
         finally:
-            browser.close()
+            from auth import close_browser
+            close_browser(browser)
             
         return jsonify({"status": "success", "message": message})
 

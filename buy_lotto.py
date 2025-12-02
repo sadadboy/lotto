@@ -239,63 +239,36 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
             logger.success("구매 요청 완료! (결과 스크린샷 확인 필요)")
             send_discord_message(f"✅ 구매 요청 완료!\n" + "\n".join(purchased_details))
             
-            # [추가] 구매 후 예치금 갱신 및 구매내역 스크린샷
+            # [추가] 잔액 업데이트
             try:
-                # 1. 예치금 갱신
+                # 메인 페이지 새로고침 (잔액 갱신을 위해)
+                # 구매 페이지(TotalGame.jsp)에서는 상단에 잔액이 안 나올 수 있음.
+                # 하지만 보통 상단 GNB는 유지됨.
+                # 안전하게 페이지 리로드 후 확인
                 page.reload()
-                time.sleep(2)
+                page.wait_for_load_state('networkidle')
+                
                 import lotto
                 from status_manager import status_manager
-                
-                new_balance = lotto.check_deposit(page)
-                if new_balance != -1:
-                    status_manager.update_balance(new_balance)
-                    logger.info(f"구매 후 예치금 갱신: {new_balance}원")
+                balance = lotto.check_deposit(page)
+                if balance != -1:
+                    status_manager.update_balance(balance)
+                    logger.info(f"구매 후 예치금 업데이트: {balance}원")
+
+                # [추가] 구매 직후 상세 영수증 캡처
+                from history import capture_recent_receipt
+                receipt_info = capture_recent_receipt(page)
+                if receipt_info:
+                    # 구매 직후이므로 latest_receipt.png로 저장 (통합)
+                    import shutil
+                    shutil.copy(receipt_info['image_path'], "latest_receipt.png")
                     
-                # 2. 구매내역 스크린샷 (가장 최근 내역)
-                logger.info("구매내역 페이지로 이동하여 인증샷 촬영...")
-                page.goto("https://www.dhlottery.co.kr/myPage.do?method=lottoBuyListView")
-                
-                # 첫 번째 행의 '선택번호/복권번호' 링크 찾기
-                # 테이블 구조: .tbl_data tbody tr:first-child td:nth-child(4) a
-                # 팝업 링크: javascript:openDetail(...)
-                
-                latest_link = page.locator('.tbl_data tbody tr').first.locator('td').nth(3).locator('a')
-                if latest_link.is_visible():
-                    logger.info("최근 구매내역 발견, 상세 팝업 오픈...")
-                    
-                    with page.expect_popup() as popup_info:
-                        latest_link.click()
-                    
-                    popup = popup_info.value
-                    popup.wait_for_load_state()
-                    time.sleep(2)
-                    
-                    # 팝업 스크린샷
-                    ticket_img_name = f"ticket_{int(time.time())}.png"
-                    # 대시보드 static 폴더에도 저장 (웹 표시용)
-                    dashboard_static_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dashboard', 'static', 'screenshots')
-                    if not os.path.exists(dashboard_static_path):
-                        os.makedirs(dashboard_static_path)
-                        
-                    ticket_path = os.path.join(dashboard_static_path, ticket_img_name)
-                    popup.screenshot(path=ticket_path)
-                    logger.info(f"구매 인증샷 저장 완료: {ticket_path}")
-                    
-                    # 상태 업데이트 (웹 경로)
-                    web_path = f"screenshots/{ticket_img_name}"
-                    status_manager.update_ticket_image(web_path)
-                    
-                    # 디스코드 전송
-                    from notification import send_discord_file
-                    send_discord_file(ticket_path, "🎫 **최근 구매 영수증**")
-                    
-                    popup.close()
-                else:
-                    logger.warning("구매내역을 찾을 수 없습니다.")
+                    # 상태 업데이트: 미확인 (구매 완료)
+                    status_manager.update_latest_result("미확인 (구매 완료)")
+                    logger.info("구매 상세 영수증 캡처 및 상태 업데이트 완료")
                     
             except Exception as e:
-                logger.error(f"구매 후 처리(예치금/스샷) 중 오류: {e}")
+                logger.warning(f"구매 후 후처리(잔액/영수증) 실패: {e}")
             
     except Exception as e:
         logger.error(f"구매 프로세스 중 오류 발생: {e}")

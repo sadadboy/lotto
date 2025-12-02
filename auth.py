@@ -27,6 +27,7 @@ def login(user_id, user_pw, headless=False):
         ]
     )
 
+    browser._playwright = playwright
     try:
         # 모바일 리다이렉트 방지를 위해 User-Agent와 Viewport 설정 (강제 PC 모드)
         context = browser.new_context(
@@ -76,13 +77,34 @@ def login(user_id, user_pw, headless=False):
         except Exception as e:
             logger.warning(f"스텝 1 스크린샷 실패: {e}")
 
-        if page.locator('a[href*="logout"]').is_visible() or page.locator('.btn_logout').is_visible():
-            logger.success("로그인 성공")
+        logger.info(f"아이디/비밀번호 입력 중... ID: {user_id}, PW Type: {type(user_pw)}")
+        # 아이디 입력
+        page.fill('#userId', user_id)
+        # 비밀번호 입력
+        page.fill('#article > div:nth-child(2) > div > form > div > div.inner > fieldset > div.form > input[type=password]:nth-child(2)', user_pw)
+        
+        logger.info("로그인 버튼 클릭...")
+        # 로그인 버튼 클릭
+        page.click('#article > div:nth-child(2) > div > form > div > div.inner > fieldset > div.form > a')
+
+        # 로그인 성공 여부 확인
+        time.sleep(2)
+        
+        try:
+            page.wait_for_selector('text="로그아웃"', timeout=15000)
+            logger.info("로그인 확인 완료.")
             
+            # [Step 2] 로그인 성공 직후 스크린샷
+            try:
+                page.screenshot(path="step2_login_success.png")
+                send_discord_file("step2_login_success.png", "📸 [Step 2] 로그인 성공 (메인 페이지)")
+            except Exception as e:
+                logger.warning(f"스텝 2 스크린샷 실패: {e}")
+
             # [추가] 예치금 확인 및 상태 업데이트
             try:
-                from status_manager import status_manager
                 import lotto
+                from status_manager import status_manager
                 balance = lotto.check_deposit(page)
                 if balance != -1:
                     status_manager.update_balance(balance)
@@ -90,7 +112,12 @@ def login(user_id, user_pw, headless=False):
             except Exception as e:
                 logger.warning(f"예치금 업데이트 실패: {e}")
                 
-        else:
+        except:
+            logger.warning("로그인 확인 실패. 캡차나 보안 프로그램이 작동했을 수 있습니다.")
+            # 실패 시 스크린샷 및 HTML 저장
+            page.screenshot(path="login_failed.png")
+            with open("login_failed.html", "w", encoding="utf-8") as f:
+                f.write(page.content())
             raise Exception("로그인 검증 실패")
 
         return browser, page
@@ -102,3 +129,21 @@ def login(user_id, user_pw, headless=False):
         if 'playwright' in locals():
             playwright.stop()
         raise e
+
+def close_browser(browser):
+    """
+    브라우저와 Playwright 인스턴스를 안전하게 종료합니다.
+    """
+    if not browser:
+        return
+        
+    try:
+        browser.close()
+    except Exception as e:
+        logger.warning(f"브라우저 종료 중 오류: {e}")
+        
+    try:
+        if hasattr(browser, '_playwright'):
+            browser._playwright.stop()
+    except Exception as e:
+        logger.warning(f"Playwright 종료 중 오류: {e}")
