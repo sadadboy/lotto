@@ -9,7 +9,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/toggle.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
-    <!-- FontAwesome (Optional, replace with local or CDN) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 
@@ -18,11 +17,8 @@
         <aside class="sidebar">
             <div class="logo">
                 <h2>🎱 Lotto Bot</h2>
-                <button class="mobile-menu-toggle" id="menuToggle">
-                    <i class="fas fa-bars"></i>
-                </button>
             </div>
-            <nav id="sidebarNav">
+            <nav>
                 <ul>
                     <li class="active"><a href="#section-status"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
                     </li>
@@ -36,9 +32,6 @@
             <div class="status-indicator">
                 <span class="dot stopped"></span> Bot Stopped
             </div>
-            <div class="version-info" style="margin-top: 10px; font-size: 0.8rem; color: #64748b; text-align: center;">
-                v1.1.0
-            </div>
         </aside>
 
         <main class="content">
@@ -50,10 +43,19 @@
             </header>
 
             {% block content %}{% endblock %}
+
+            <footer class="text-center mt-5 mb-5 text-muted"
+                style="margin-top: 2rem; text-align: center; color: #6c757d;">
+                <p>&copy; 2025 Lotto Bot. All rights reserved.</p>
+                <p class="small" style="font-size: 0.8rem;">
+                    Version: <span title="{{ version_info.date }} - {{ version_info.msg }}">{{ version_info.version
+                        }}</span>
+                </p>
+            </footer>
         </main>
     </div>
 
-    <script src="{{ url_for('static', filename='js/main.js') }}?v=3"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v=2"></script>
 </body>
 
 </html>

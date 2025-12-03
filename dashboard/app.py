@@ -85,6 +85,24 @@ def save_config(config):
     except Exception as e:
         print(f"[DEBUG] Config save error: {e}")
 
+# 버전 정보 로드
+def load_version_info():
+    version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'version.txt')
+    info = {'version': 'Unknown', 'date': '', 'msg': ''}
+    if os.path.exists(version_file):
+        with open(version_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    if key.strip() == '버전': info['version'] = value.strip()
+                    elif key.strip() == '날짜': info['date'] = value.strip()
+                    elif key.strip() == '내용': info['msg'] = value.strip()
+    return info
+
+@app.context_processor
+def inject_version():
+    return dict(version_info=load_version_info())
+
 @app.route('/')
 def index():
     return render_template('index.html')

@@ -8,9 +8,19 @@ def create_release_zip():
     EXCLUDE_FILES = {'config.json', '.env', 'secret.key', 'bot.log', 'bot.pid'}
     EXCLUDE_EXTENSIONS = {'.pyc', '.pyo', '.pyd', '.DS_Store', '.zip'}
 
+    # 버전 정보 읽기
+    version = "unknown"
+    version_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'version.txt')
+    if os.path.exists(version_file):
+        with open(version_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('버전:'):
+                    version = line.split(':')[1].strip()
+                    break
+
     # 현재 날짜로 파일명 생성
     date_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    zip_filename = f"lotto_release_{date_str}.zip"
+    zip_filename = f"lotto_{version}_{date_str}.zip"
     
     # 프로젝트 루트 디렉토리
     root_dir = os.path.dirname(os.path.abspath(__file__))
