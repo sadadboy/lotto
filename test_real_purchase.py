@@ -7,6 +7,8 @@ from loguru import logger
 import time
 import traceback
 
+logger.add("test_real_purchase.log", rotation="1 MB")
+
 def test_real_purchase():
     # Load config
     try:

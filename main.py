@@ -107,9 +107,12 @@ def check_winning_job():
             close_browser(browser)
             logger.info("브라우저 종료")
 
+from datetime import datetime
+
 def run_scheduler():
-    logger.info("🤖 로또 봇 스케줄러가 시작되었습니다.")
-    send_discord_message("🤖 로또 봇이 시작되었습니다. 스케줄을 대기합니다.")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logger.info(f"🤖 로또 봇 스케줄러 시작. 서버 시간: {now}")
+    send_discord_message(f"🤖 로또 봇이 시작되었습니다.\n🕒 서버 시간: {now}\n📅 설정된 스케줄을 대기합니다.")
     
     config = load_config()
     if not config:
@@ -122,41 +125,61 @@ def run_scheduler():
     buy_day = schedule_config.get('buy_day', 'Saturday')
     buy_time = schedule_config.get('buy_time', '10:00')
     
-    # 요일 매핑
-    days = {
-        'Monday': schedule.every().monday,
-        'Tuesday': schedule.every().tuesday,
-        'Wednesday': schedule.every().wednesday,
-        'Thursday': schedule.every().thursday,
-        'Friday': schedule.every().friday,
-        'Saturday': schedule.every().saturday,
-        'Sunday': schedule.every().sunday
-    }
-    
-    if buy_day in days:
-        days[buy_day].at(buy_time).do(buy_job)
+    # 요일 매핑 함수
+    def get_scheduler(day_name):
+        day_name = day_name.lower()
+        if hasattr(schedule.every(), day_name):
+            return getattr(schedule.every(), day_name)
+        return None
+
+    scheduler = get_scheduler(buy_day)
+    if scheduler:
+        scheduler.at(buy_time).do(buy_job)
         logger.info(f"📅 구매 예약: 매주 {buy_day} {buy_time}")
         send_discord_message(f"📅 구매 예약됨: 매주 {buy_day} {buy_time}")
     else:
         logger.error(f"잘못된 요일 설정: {buy_day}")
 
-    # 예치금 충전 스케줄 (일단 주석 처리 또는 비활성화)
-    # deposit_day = schedule_config.get('deposit_day', 'Friday')
-    # deposit_time = schedule_config.get('deposit_time', '18:00')
-    # if deposit_day in days:
-    #     days[deposit_day].at(deposit_time).do(deposit_job)
+    # 예치금 충전 스케줄
+    deposit_day = schedule_config.get('deposit_day', 'Friday')
+    deposit_time = schedule_config.get('deposit_time', '18:00')
+    scheduler = get_scheduler(deposit_day)
+    if scheduler:
+        scheduler.at(deposit_time).do(deposit_job)
+        logger.info(f"📅 충전 예약: 매주 {deposit_day} {deposit_time}")
+        send_discord_message(f"📅 충전 예약됨: 매주 {deposit_day} {deposit_time}")
 
     # 당첨 확인 스케줄 (기본값: 토요일 23:00)
     check_day = schedule_config.get('check_day', 'Saturday')
     check_time = schedule_config.get('check_time', '23:00')
     
-    if check_day in days:
-        days[check_day].at(check_time).do(check_winning_job)
+    scheduler = get_scheduler(check_day)
+    if scheduler:
+        scheduler.at(check_time).do(check_winning_job)
         logger.info(f"📅 당첨 확인 예약: 매주 {check_day} {check_time}")
         send_discord_message(f"📅 당첨 확인 예약됨: 매주 {check_day} {check_time}")
+    else:
+        logger.error(f"잘못된 당첨 확인 요일 설정: {check_day}")
 
+    # 스케줄링된 작업 확인 및 로그
+    logger.info("📋 예약된 작업 목록:")
+    for job in schedule.get_jobs():
+        logger.info(f"   - {job} (다음 실행: {job.next_run})")
+        
+    logger.info("🚀 스케줄러 루프 진입")
+    
+    # 하트비트 설정 (1분마다 로그)
+    last_heartbeat = time.time()
+    
     while True:
         schedule.run_pending()
+        
+        # 1분마다 하트비트 로그
+        current_time = time.time()
+        if current_time - last_heartbeat > 60:
+            logger.debug(f"💓 Scheduler Heartbeat - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            last_heartbeat = current_time
+            
         time.sleep(1)
 
 if __name__ == "__main__":

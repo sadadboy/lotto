@@ -8,32 +8,37 @@ def check_deposit(page: Page) -> int:
     실패 시 -1을 반환합니다.
     """
     try:
-        # 상단 예치금 정보 셀렉터 (사이트 구조에 따라 변경 가능성 있음)
-        # 보통 로그인 후 상단에 '예치금 : 000원' 형태로 표시됨
-        # 정확한 셀렉터를 찾기 위해 일반적인 패턴 사용
-        deposit_selector = '.money' # 가상의 클래스, 실제 확인 필요. 
-        
-        element = page.query_selector('.money') # 추측
-        if not element:
-            # 텍스트로 찾기
-            element = page.get_by_text("예치금", exact=False).first
-            
+        # 2026 리뉴얼: 마이페이지(#totalAmt) 확인 (우선순위 1)
+        # <span class="deposit-num" id="totalAmt">4,750</span>
+        element = page.query_selector('#totalAmt')
         if element:
             text = element.inner_text()
-            logger.info(f"현재 예치금 정보: {text}")
-            
-            # "20,750원" -> 20750 파싱
+            logger.info(f"마이페이지 예치금(#totalAmt): {text}")
             import re
             numbers = re.findall(r'\d+', text)
             if numbers:
                 amount = int(''.join(numbers))
                 return amount
-            else:
-                logger.warning("예치금 텍스트에서 숫자를 찾을 수 없습니다.")
-                return -1
-        else:
-            logger.warning("예치금 정보를 찾을 수 없습니다.")
-            return -1
+        
+        # 레거시 및 백업 (우선순위 2)
+        # 상단 예치금 정보 셀렉터 (사이트 구조에 따라 변경 가능성 있음)
+        deposit_selector = '.money' 
+        element = page.query_selector(deposit_selector)
+        if not element:
+            # 텍스트로 찾기 (예: "예치금 : 20,000원")
+            element = page.get_by_text("예치금", exact=False).first
+            
+        if element:
+            text = element.inner_text()
+            logger.info(f"예치금 텍스트 발견(백업): {text}")
+            import re
+            numbers = re.findall(r'\d+', text)
+            if numbers:
+                amount = int(''.join(numbers))
+                return amount
+                
+        logger.warning("예치금 정보를 찾을 수 없습니다.")
+        return -1
     except Exception as e:
         logger.error(f"예치금 확인 중 오류: {e}")
         return -1

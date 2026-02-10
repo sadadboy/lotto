@@ -24,7 +24,8 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
         # 1. 구매 페이지로 이동 (이미 이동되어 있을 수 있지만 안전하게 확인)
         if "TotalGame.jsp" not in page.url:
             logger.info("구매 페이지로 이동 중...")
-            page.goto("https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40")
+             # 2026 리뉴얼: URL은 동일하지만 타임아웃 증가 (120초)
+            page.goto("https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40", timeout=120000)
             
             # [Step 3] 구매 페이지 이동 직후 스크린샷
             try:
@@ -34,17 +35,28 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
             except Exception as e:
                 logger.warning(f"스텝 3 스크린샷 실패: {e}")
         
-        # 페이지 로드 대기 (네트워크 유휴 상태까지)
+        # 페이지 로드 대기 (네트워크 유휴 상태까지) - 타임아웃 증가
         try:
-            page.wait_for_load_state('networkidle', timeout=10000)
+            page.wait_for_load_state('networkidle', timeout=60000)
         except:
             logger.warning("페이지 로드 대기 타임아웃 (진행함)")
 
-        # iframe 찾기 (타임아웃 30초로 증가)
+        # iframe 찾기 (타임아웃 120초로 대폭 증가 - 사이트 느림)
         logger.info("구매 프레임(iframe) 찾는 중...")
         try:
-            iframe_element = page.wait_for_selector('iframe#ifrm_tab', timeout=30000)
+            # 2026 리뉴얼: iframe ID는 'ifrm_tab' 으로 유지됨 (사용자 확인)
+            iframe_element = page.wait_for_selector('iframe#ifrm_tab', timeout=120000)
             iframe = page.frame_locator('iframe#ifrm_tab')
+            
+            # iframe 내부 로드 대기 (body 요소 확인)
+            iframes_frame = iframe_element.content_frame()
+            if iframes_frame:
+                try:
+                    iframes_frame.wait_for_selector('body', timeout=60000)
+                    logger.info("iframe body 로드 완료")
+                except:
+                    logger.warning("iframe body 로드 대기 타임아웃 (진행 시도)")
+            
         except Exception as e:
             logger.error(f"iframe 찾기 실패. 현재 URL: {page.url}")
             # 현재 화면 캡처 (디버깅용)
@@ -239,13 +251,19 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
             logger.success("구매 요청 완료! (결과 스크린샷 확인 필요)")
             send_discord_message(f"✅ 구매 요청 완료!\n" + "\n".join(purchased_details))
             
+            # 구매 결과 스크린샷 전송
+            try:
+                from notification import send_discord_file
+                if os.path.exists("after_buy_click.png"):
+                    send_discord_file("after_buy_click.png", "📸 구매 직후 화면")
+            except Exception as e:
+                logger.warning(f"구매 결과 스크린샷 전송 실패: {e}")
+            
             # [추가] 잔액 업데이트
             try:
-                # 메인 페이지 새로고침 (잔액 갱신을 위해)
-                # 구매 페이지(TotalGame.jsp)에서는 상단에 잔액이 안 나올 수 있음.
-                # 하지만 보통 상단 GNB는 유지됨.
-                # 안전하게 페이지 리로드 후 확인
-                page.reload()
+                # 메인 페이지로 이동하여 잔액 확인 (가장 확실한 방법)
+                logger.info("잔액 갱신을 위해 메인 페이지로 이동...")
+                page.goto("https://dhlottery.co.kr/", timeout=120000, wait_until='domcontentloaded')
                 page.wait_for_load_state('networkidle')
                 
                 import lotto

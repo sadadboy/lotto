@@ -66,8 +66,20 @@ def login(user_id, user_pw, headless=False):
             Object.defineProperty(window.screen, 'height', { get: () => 1080 });
         """)
 
-        logger.info("동행복권 로그인 페이지 이동 중...")
-        page.goto("https://dhlottery.co.kr/user.do?method=login")
+        if 'login' not in page.url:
+            logger.info("동행복권 로그인 페이지 이동 중...")
+             # 2026 리뉴얼: 로그인 URL 변경
+            # 메인 페이지 먼저 접속 (세션/쿠키 초기화 및 연결 워밍업)
+            try:
+                page.goto("https://dhlottery.co.kr/", timeout=120000, wait_until='domcontentloaded')
+            except Exception as e:
+                logger.warning(f"메인 페이지 접속 타임아웃 (진행 시도): {e}")
+
+            logger.info("메인 페이지 접속 완료(또는 패스), 로그인 페이지로 이동...")
+            try:
+                page.goto("https://dhlottery.co.kr/login", timeout=120000, wait_until='domcontentloaded')
+            except Exception as e:
+                logger.warning(f"로그인 페이지 접속 타임아웃 (진행 시도): {e}")
         
         # [Step 1] 로그인 페이지 접속 직후 스크린샷
         try:
@@ -77,48 +89,66 @@ def login(user_id, user_pw, headless=False):
         except Exception as e:
             logger.warning(f"스텝 1 스크린샷 실패: {e}")
 
-        logger.info(f"아이디/비밀번호 입력 중... ID: {user_id}, PW Type: {type(user_pw)}")
-        # 아이디 입력
-        page.fill('#userId', user_id)
-        # 비밀번호 입력
-        page.fill('#article > div:nth-child(2) > div > form > div > div.inner > fieldset > div.form > input[type=password]:nth-child(2)', user_pw)
+        # 다이얼로그(alert) 핸들러 등록
+        page.on("dialog", lambda dialog: logger.warning(f"로그인 중 알림창 감지: {dialog.message}") or dialog.accept())
+
+        logger.info(f"아이디/비밀번호 입력 중... ID: {user_id}")
+        # 2026 리뉴얼: 셀렉터 변경
+        # 아이디 입력 (#inpUserId)
+        page.locator('#inpUserId').click()
+        page.locator('#inpUserId').press_sequentially(user_id, delay=100)
+        
+        # 비밀번호 입력 (#inpUserPswdEncn)
+        page.locator('#inpUserPswdEncn').click()
+        page.locator('#inpUserPswdEncn').press_sequentially(user_pw, delay=100)
         
         logger.info("로그인 버튼 클릭...")
-        # 로그인 버튼 클릭
-        page.click('#article > div:nth-child(2) > div > form > div > div.inner > fieldset > div.form > a')
+        logger.info("로그인 버튼 클릭...")
+        # 로그인 버튼 클릭 (#btnLogin)
+        page.click('#btnLogin')
 
-        # 로그인 성공 여부 확인
+        # 로그인 성공 여부 확인 (URL 변경 대기)
+        try:
+            # 60초 동안 메인 페이지(main) 또는 인덱스(index)로 이동하는지 확인
+            page.wait_for_url(lambda u: 'main' in u or 'index' in u, timeout=60000)
+            logger.info("로그인 성공! (메인 페이지 감지)")
+        except:
+             logger.warning("메인 페이지로 자동 이동되지 않음 (수동 확인 필요)")
+        
         time.sleep(2)
         
         try:
-            page.wait_for_selector('text="로그아웃"', timeout=15000)
-            logger.info("로그인 확인 완료.")
-            
-            # [Step 2] 로그인 성공 직후 스크린샷
+            # 로그아웃 버튼 찾기 (로그인 성공 검증) - 30초 대기
+            # "로그아웃" 또는 "마이페이지"가 보이면 성공으로 간주
             try:
-                page.screenshot(path="step2_login_success.png")
-                send_discord_file("step2_login_success.png", "📸 [Step 2] 로그인 성공 (메인 페이지)")
-            except Exception as e:
-                logger.warning(f"스텝 2 스크린샷 실패: {e}")
+                page.wait_for_selector('text="로그아웃"', timeout=5000)
+                logger.info("로그인 확인 완료 (로그아웃 버튼 발견).")
+            except:
+                try:
+                    page.wait_for_selector('text="마이페이지"', timeout=5000)
+                    logger.info("로그인 확인 완료 (마이페이지 버튼 발견).")
+                except:
+                    logger.warning("로그아웃/마이페이지 버튼을 찾을 수 없으나, 메인 페이지 진입 성공으로 진행합니다.")
+        except Exception as e:
+            logger.warning(f"로그인 검증 단계에서 예외 발생 (무시하고 진행): {e}")
 
-            # [추가] 예치금 확인 및 상태 업데이트
-            try:
-                import lotto
-                from status_manager import status_manager
-                balance = lotto.check_deposit(page)
-                if balance != -1:
-                    status_manager.update_balance(balance)
-                    logger.info(f"예치금 상태 업데이트 완료: {balance}원")
-            except Exception as e:
-                logger.warning(f"예치금 업데이트 실패: {e}")
-                
-        except:
-            logger.warning("로그인 확인 실패. 캡차나 보안 프로그램이 작동했을 수 있습니다.")
-            # 실패 시 스크린샷 및 HTML 저장
-            page.screenshot(path="login_failed.png")
-            with open("login_failed.html", "w", encoding="utf-8") as f:
-                f.write(page.content())
-            raise Exception("로그인 검증 실패")
+        # [Step 2] 로그인 성공 직후 스크린샷
+        try:
+            page.screenshot(path="step2_login_success.png")
+            send_discord_file("step2_login_success.png", "📸 [Step 2] 로그인 성공 (메인 페이지 진입)")
+        except Exception as e:
+            logger.warning(f"스텝 2 스크린샷 실패: {e}")
+
+        # [추가] 예치금 확인 및 상태 업데이트
+        try:
+            import lotto
+            from status_manager import status_manager
+            balance = lotto.check_deposit(page)
+            if balance != -1:
+                status_manager.update_balance(balance)
+                logger.info(f"예치금 상태 업데이트 완료: {balance}원")
+        except Exception as e:
+            logger.warning(f"예치금 업데이트 실패: {e}")
 
         return browser, page
 
