@@ -21,9 +21,18 @@ def check_winning_result(page):
     screenshot_path = "latest_receipt.png" 
     
     if receipt_info:
-        # 영수증 이미지를 latest_receipt.png로 복사 (통합)
-        import shutil
-        shutil.copy(receipt_info['image_path'], screenshot_path)
+        # 이미지 경로 확인
+        original_image_path = receipt_info.get('image_path')
+        screenshot_path = None
+        
+        if original_image_path and os.path.exists(original_image_path):
+            screenshot_path = "latest_receipt.png"
+            import shutil
+            try:
+                shutil.copy(original_image_path, screenshot_path)
+            except Exception as e:
+                logger.warning(f"이미지 복사 실패: {e}")
+                screenshot_path = None
         
         result = receipt_info['status']
         buy_date = receipt_info['buy_date']
@@ -50,7 +59,12 @@ def check_winning_result(page):
     else:
         msg += "\n🎉 **축하합니다! 당첨되셨습니다!** 🎉"
         
-    send_discord_file(screenshot_path, msg)
+    if screenshot_path:
+        send_discord_file(screenshot_path, msg)
+    else:
+        # 이미지가 없으면 메시지만 전송
+        msg += "\n\n(⚠️ 영수증 이미지를 캡처하지 못했습니다.)"
+        send_discord_message(msg)
 
 if __name__ == "__main__":
     # 테스트 실행

@@ -49,7 +49,9 @@
         "deposit_day": "Friday",
         "deposit_time": "18:00",
         "buy_day": "Saturday",
-        "buy_time": "10:00"
+        "buy_time": "10:00",
+        "check_day": "Saturday",
+        "check_time": "21:30"
     },
     "system": {
         "discord_webhook": ""

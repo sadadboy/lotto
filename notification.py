@@ -36,7 +36,7 @@ def send_discord_message(message, webhook_url=None):
             "content": f"[{timestamp}] 🤖 **Lotto Bot Notification**\n{message}"
         }
         
-        response = requests.post(webhook_url, json=payload)
+        response = requests.post(webhook_url, json=payload, timeout=10)
         
         if response.status_code == 204:
             logger.info("디스코드 알림 전송 성공")
@@ -78,7 +78,7 @@ def send_discord_file(file_path, message=None, webhook_url=None):
                 'content': content
             }
             
-            response = requests.post(webhook_url, data=payload, files=files)
+            response = requests.post(webhook_url, data=payload, files=files, timeout=30)
             
             if response.status_code in [200, 204]:
                 logger.info(f"디스코드 파일 전송 성공: {file_path}")

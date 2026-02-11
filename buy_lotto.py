@@ -23,9 +23,18 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
         # 1. 구매 페이지로 이동 (이미 이동되어 있을 수 있지만 안전하게 확인)
         # 1. 구매 페이지로 이동 (이미 이동되어 있을 수 있지만 안전하게 확인)
         if "TotalGame.jsp" not in page.url:
+            # [클라우드 대응] 세션 갱신을 위해 메인 페이지 먼저 방문
+            logger.info("세션 갱신을 위해 메인 페이지 경유...")
+            try:
+                page.goto("https://dhlottery.co.kr/", timeout=60000, wait_until='domcontentloaded')
+                time.sleep(2)  # 쿠키 굽기
+            except:
+                pass
+
             logger.info("구매 페이지로 이동 중...")
              # 2026 리뉴얼: URL은 동일하지만 타임아웃 증가 (120초)
-            page.goto("https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40", timeout=120000)
+            # 클라우드 환경 세션 유지를 위해 Referer 추가
+            page.goto("https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40", timeout=120000, referer="https://dhlottery.co.kr/")
             
             # [Step 3] 구매 페이지 이동 직후 스크린샷
             try:

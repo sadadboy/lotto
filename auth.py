@@ -53,6 +53,9 @@ def login(user_id, user_pw, headless=False):
         
         # JavaScript로 모바일 감지 완전 차단
         page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => false
+            });
             Object.defineProperty(navigator, 'maxTouchPoints', {
                 get: () => 0
             });
@@ -114,8 +117,18 @@ def login(user_id, user_pw, headless=False):
             logger.info("로그인 성공! (메인 페이지 감지)")
         except:
              logger.warning("메인 페이지로 자동 이동되지 않음 (수동 확인 필요)")
+             
+        # [추가] 로그인 실패 팝업/메시지 감지
+        if page.locator("text='아이디 또는 비밀번호가 일치하지 않습니다'").is_visible():
+            logger.error("로그인 실패: 아이디 또는 비밀번호가 일치하지 않습니다.")
+            raise Exception("Login Failed: Invalid Credentials")
         
-        time.sleep(2)
+        if page.locator("text='비밀번호 5회 오류'").is_visible():
+            logger.error("로그인 실패: 비밀번호 5회 오류 제한.")
+            raise Exception("Login Failed: Password Retry Limit")
+        
+        # 세션 안정화를 위해 충분히 대기 (클라우드 환경 대응)
+        time.sleep(5)
         
         try:
             # 로그아웃 버튼 찾기 (로그인 성공 검증) - 30초 대기
