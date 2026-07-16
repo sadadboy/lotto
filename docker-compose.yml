@@ -8,8 +8,11 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # Mount config.json to persist settings
+      # Mount config.json to persist settings (git에 올리지 않음)
       - ./config.json:/app/config.json
+      # Mount secret.key so the encryption key is provided at runtime from the
+      # host instead of being baked into the image (재빌드 없이 키 교체 가능, 보안↑)
+      - ./secret.key:/app/secret.key
       # Mount bot.log to persist logs
       - ./bot.log:/app/bot.log
     environment:
