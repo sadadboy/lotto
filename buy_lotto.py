@@ -50,6 +50,27 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
         except:
             logger.warning("페이지 로드 대기 타임아웃 (진행함)")
 
+        # [모바일 모드 방어] 토요일 트래픽 폭주 등으로 사이트가 모바일 레이아웃/도메인으로
+        # 리다이렉트되면 데스크탑 셀렉터(#ifrm_tab 등)가 없어 구매가 실패함.
+        # 모바일로 빠진 경우를 감지하여 데스크탑 구매 페이지로 강제 복귀시킨다.
+        for _retry in range(2):
+            cur_url = page.url
+            is_mobile_url = ('m.dhlottery' in cur_url) or ('/m/' in cur_url)
+            has_iframe = page.query_selector('iframe#ifrm_tab') is not None
+            if is_mobile_url or not has_iframe:
+                logger.warning(f"모바일 모드/비정상 레이아웃 의심 (url={cur_url}, iframe={has_iframe}). 데스크탑으로 재강제 이동...")
+                try:
+                    # PC User-Agent 유지 상태에서 데스크탑 구매 URL 재요청
+                    page.goto("https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40",
+                              timeout=120000, referer="https://dhlottery.co.kr/")
+                    page.wait_for_load_state('networkidle', timeout=60000)
+                except Exception as e:
+                    logger.warning(f"데스크탑 재이동 중 예외(진행 시도): {e}")
+            else:
+                if _retry == 0:
+                    logger.info("데스크탑 구매 레이아웃 확인됨 (iframe#ifrm_tab 존재).")
+                break
+
         # iframe 찾기 (타임아웃 120초로 대폭 증가 - 사이트 느림)
         logger.info("구매 프레임(iframe) 찾는 중...")
         try:
@@ -73,30 +94,23 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
             raise e
         
         # 2. 구매 가능 수량 확인
-        # "발급가능수량 : 5 매" 텍스트 찾기
-        available_count = 5 # 기본값
+        # 2026 리뉴얼: 인라인 게임 페이지에는 '발급가능수량' 표시 요소가 없어졌음.
+        # (구 팝업 UI의 #popup_possible_cnt 는 더 이상 존재하지 않음)
+        # 로또 6/45는 1회 최대 5게임(5,000원)이 상한이며, 주간 구매 한도는 서버에서 검증되어
+        # 초과 시 구매 단계에서 알림창으로 차단된다. 따라서 상한 5를 기본값으로 사용한다.
+        available_count = 5  # 로또 6/45 1회 구매 상한
         try:
-            # 상단 정보 영역에서 텍스트 추출
-            # 예: <div class="num_count"> ... <strong>5</strong> ... </div>
-            # 정확한 셀렉터가 불분명하므로 텍스트로 시도
-            # 보통 '발급가능수량' 또는 '잔여수량' 등의 텍스트가 있음
-            # 동행복권 사이트 구조상 '발급가능' 텍스트가 있는 요소를 찾음
-            
-            # iframe 내부에서 찾아야 함
-            # id="cnt_per_week" 같은게 있을 수 있음
-            # 실제 사이트: <span id="popup_possible_cnt">5</span> 매
-            
+            # 혹시 남아있을 수 있는 레거시 셀렉터를 시도하되, 없으면 조용히 기본값 사용
             possible_cnt_elem = iframe.locator('#popup_possible_cnt')
-            if possible_cnt_elem.is_visible():
+            if possible_cnt_elem.count() > 0 and possible_cnt_elem.is_visible():
                 text = possible_cnt_elem.inner_text()
                 available_count = int(text)
-                logger.info(f"구매 가능 수량: {available_count}장")
+                logger.info(f"구매 가능 수량(레거시 셀렉터): {available_count}장")
                 send_discord_message(f"ℹ️ 현재 구매 가능 수량: {available_count}장")
             else:
-                logger.warning("구매 가능 수량 요소를 찾을 수 없습니다. 기본값 5로 진행합니다.")
-                
+                logger.info(f"발급가능수량 표시 요소 없음(리뉴얼). 1회 상한 {available_count}게임으로 진행 (한도 초과는 서버가 차단).")
         except Exception as e:
-            logger.warning(f"구매 가능 수량 확인 실패 (무시하고 진행): {e}")
+            logger.info(f"구매 가능 수량 확인 생략(무시하고 진행): {e}")
 
         if available_count <= 0:
             logger.warning("구매 가능 수량이 없습니다.")
@@ -270,14 +284,15 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False):
             
             # [추가] 잔액 업데이트
             try:
-                # 메인 페이지로 이동하여 잔액 확인 (가장 확실한 방법)
+                # 메인 페이지로 이동하여 잔액 확인
                 logger.info("잔액 갱신을 위해 메인 페이지로 이동...")
                 page.goto("https://dhlottery.co.kr/", timeout=120000, wait_until='domcontentloaded')
                 page.wait_for_load_state('networkidle')
-                
+
                 import lotto
                 from status_manager import status_manager
-                balance = lotto.check_deposit(page)
+                # 메인 헤더 예치금은 리뉴얼 사이트에서 0으로 나오므로 신뢰 조회(게임프레임 #moneyBalance) 사용
+                balance = lotto.get_reliable_balance(page)
                 if balance != -1:
                     status_manager.update_balance(balance)
                     logger.info(f"구매 후 예치금 업데이트: {balance}원")

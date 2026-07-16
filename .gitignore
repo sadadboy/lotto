@@ -5,6 +5,7 @@ secret.key
 
 # Logs and Debugging
 *.log
+*.pid
 *.png
 *_dump.html
 *_page.html

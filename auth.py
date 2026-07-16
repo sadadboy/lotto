@@ -153,10 +153,12 @@ def login(user_id, user_pw, headless=False):
             logger.warning(f"스텝 2 스크린샷 실패: {e}")
 
         # [추가] 예치금 확인 및 상태 업데이트
+        # 리뉴얼 사이트의 메인 헤더 예치금(#navTotalAmt)은 실제 잔액과 무관하게 0으로 나올 수 있어,
+        # 게임 페이지의 #moneyBalance를 조회하는 get_reliable_balance 사용 (조회 후 메인 복귀)
         try:
             import lotto
             from status_manager import status_manager
-            balance = lotto.check_deposit(page)
+            balance = lotto.get_reliable_balance(page)
             if balance != -1:
                 status_manager.update_balance(balance)
                 logger.info(f"예치금 상태 업데이트 완료: {balance}원")
