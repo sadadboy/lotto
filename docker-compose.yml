@@ -13,6 +13,9 @@ services:
       # Mount secret.key so the encryption key is provided at runtime from the
       # host instead of being baked into the image (재빌드 없이 키 교체 가능, 보안↑)
       - ./secret.key:/app/secret.key
+      # Mount status.json so the balance/상태 persists across restarts and is
+      # shared between the dashboard and manual updaters (예: update_balance.py)
+      - ./status.json:/app/status.json
       # Mount bot.log to persist logs
       - ./bot.log:/app/bot.log
     environment:
