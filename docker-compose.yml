@@ -8,16 +8,15 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # Mount config.json to persist settings (git에 올리지 않음)
+      # 사용자가 직접 준비/업로드하는 비밀 파일만 호스트에서 마운트한다.
+      # (git에는 올리지 않음 — .gitignore 처리)
+      # 주의: 개별 파일 마운트는 호스트에 해당 "파일"이 먼저 존재해야 한다.
+      #       (없으면 Docker가 같은 이름의 빈 디렉토리를 만들어 오작동함)
       - ./config.json:/app/config.json
-      # Mount secret.key so the encryption key is provided at runtime from the
-      # host instead of being baked into the image (재빌드 없이 키 교체 가능, 보안↑)
       - ./secret.key:/app/secret.key
-      # Mount status.json so the balance/상태 persists across restarts and is
-      # shared between the dashboard and manual updaters (예: update_balance.py)
-      - ./status.json:/app/status.json
-      # Mount bot.log to persist logs
-      - ./bot.log:/app/bot.log
+      # status.json / bot.log 등 런타임 생성 파일은 마운트하지 않는다.
+      # 컨테이너 내부에서 앱이 자동 생성하며, 봇 시작 시 예치금이 갱신된다.
+      # 로그는 `docker compose logs` 또는 대시보드에서 확인.
     environment:
       - TZ=Asia/Seoul
       - HEADLESS=true

@@ -3,6 +3,10 @@ config.json
 .env
 secret.key
 
+# Runtime state (앱이 자동 생성 — git으로 관리하지 않음)
+status.json
+bot.pid
+
 # Logs and Debugging
 *.log
 *.pid
