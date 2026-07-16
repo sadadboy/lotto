@@ -109,6 +109,34 @@ def check_winning_job():
 
 from datetime import datetime
 
+def refresh_status_job():
+    """스케줄러 시작 시 1회 로그인하여 예치금/상태를 즉시 갱신한다.
+    (봇을 켜면 대시보드에 현재 잔액이 바로 반영되도록)
+    login() 내부에서 get_reliable_balance -> status_manager.update_balance 가 수행됨.
+    """
+    logger.info("🔄 시작 시 예치금/상태 1회 갱신 중...")
+    config = load_config()
+    if not config:
+        return
+
+    security_manager = SecurityManager()
+    user_id = config['account']['user_id']
+    user_pw = security_manager.decrypt(config['account']['user_pw'])
+    if not user_pw:
+        logger.warning("비밀번호 복호화 실패로 시작 시 갱신을 건너뜁니다.")
+        return
+
+    browser = None
+    try:
+        browser, page = login(user_id, user_pw, headless=True)
+        logger.info("✅ 시작 시 예치금/상태 갱신 완료")
+    except Exception as e:
+        logger.warning(f"시작 시 갱신 실패(무시하고 스케줄 진행): {e}")
+    finally:
+        if browser:
+            from auth import close_browser
+            close_browser(browser)
+
 def run_scheduler():
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logger.info(f"🤖 로또 봇 스케줄러 시작. 서버 시간: {now}")
@@ -118,6 +146,12 @@ def run_scheduler():
     if not config:
         logger.error("설정을 불러올 수 없어 종료합니다.")
         return
+
+    # 시작 시 1회 예치금/상태 갱신 (대시보드 즉시 반영)
+    try:
+        refresh_status_job()
+    except Exception as e:
+        logger.warning(f"시작 시 갱신 중 예외(무시): {e}")
 
     # 스케줄 설정
     schedule_config = config['schedule']
