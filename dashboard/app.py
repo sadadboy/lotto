@@ -99,9 +99,20 @@ def load_version_info():
                     elif key.strip() == '내용': info['msg'] = value.strip()
     return info
 
+# 변경 이력(CHANGELOG) 로드
+def load_changelog():
+    changelog_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'changelog.json')
+    if os.path.exists(changelog_file):
+        try:
+            with open(changelog_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[DEBUG] Changelog load error: {e}")
+    return []
+
 @app.context_processor
 def inject_version():
-    return dict(version_info=load_version_info())
+    return dict(version_info=load_version_info(), changelog=load_changelog())
 
 @app.route('/')
 def index():
@@ -355,4 +366,5 @@ if __name__ == '__main__':
 
     # use_reloader=False is required when running Playwright in the same process
     # to prevent the server from restarting and killing the browser.
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    port = int(os.getenv('PORT', '5000'))
+    app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False)

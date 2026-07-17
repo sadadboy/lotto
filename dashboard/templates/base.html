@@ -27,6 +27,7 @@
                     <li><a href="#section-schedule"><i class="fas fa-calendar-alt"></i> Schedule</a></li>
                     <li><a href="#section-system"><i class="fas fa-cog"></i> System</a></li>
                     <li><a href="#section-logs"><i class="fas fa-history"></i> Logs</a></li>
+                    <li><a href="#section-updates"><i class="fas fa-rocket"></i> Updates</a></li>
                 </ul>
             </nav>
             <div class="status-indicator">
@@ -48,8 +49,9 @@
                 style="margin-top: 2rem; text-align: center; color: #6c757d;">
                 <p>&copy; 2025 Lotto Bot. All rights reserved.</p>
                 <p class="small" style="font-size: 0.8rem;">
-                    Version: <span title="{{ version_info.date }} - {{ version_info.msg }}">{{ version_info.version
-                        }}</span>
+                    Version:
+                    <a href="#section-updates" title="{{ version_info.date }} - {{ version_info.msg }} (클릭: 업데이트 이력)"
+                        style="color:#7aa2f7; text-decoration:none;">{{ version_info.version }}</a>
                 </p>
             </footer>
         </main>

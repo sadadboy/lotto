@@ -215,6 +215,45 @@
         </div>
     </div>
 
+    <!-- Update History / Changelog -->
+    <div class="settings-grid" style="margin-top: 20px;">
+        <div class="card settings-card" id="section-updates" style="grid-column: span 2;">
+            <div class="card-header"
+                style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                <h3>🚀 업데이트 이력</h3>
+                {% if changelog and changelog[0] %}
+                <span
+                    style="background:#7aa2f7; color:#1a1b26; padding:4px 12px; border-radius:12px; font-weight:700; font-size:0.9em;">
+                    현재 버전: {{ changelog[0].version }}
+                </span>
+                {% endif %}
+            </div>
+            <div style="padding: 5px;">
+                {% for entry in changelog %}
+                <div
+                    style="padding:14px 16px; margin-bottom:12px; background:#24283b; border-left:3px solid {% if loop.first %}#9ece6a{% else %}#414868{% endif %}; border-radius:8px;">
+                    <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
+                        <span style="font-weight:700; color:#7aa2f7; font-size:1.1em;">{{ entry.version }}</span>
+                        {% if loop.first %}<span
+                            style="background:#9ece6a; color:#1a1b26; padding:1px 8px; border-radius:8px; font-size:0.72em; font-weight:700;">LATEST</span>{%
+                        endif %}
+                        <span style="color:#565f89; font-size:0.85em;">{{ entry.date }}</span>
+                    </div>
+                    {% if entry.title %}<p style="color:#c0caf5; margin:0 0 8px; font-weight:600;">{{ entry.title }}</p>{%
+                    endif %}
+                    <ul style="margin:0; padding-left:18px; color:#a9b1d6; line-height:1.7;">
+                        {% for c in entry.changes %}
+                        <li>{{ c }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% else %}
+                <p style="color:#a9b1d6; padding:10px;">변경 이력이 없습니다.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
     <div class="card-header" style="margin-top: 30px;">
         <h3>📜 실행 로그</h3>
     </div>
