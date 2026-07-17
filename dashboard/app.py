@@ -2,12 +2,25 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 import json
 import os
 import sys
+from datetime import datetime
 
 # 부모 디렉토리(lotto)를 sys.path에 추가하여 모듈 접근 가능하게 함
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 app = Flask(__name__)
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config.json')
+BOT_LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'bot.log')
+
+def dash_log(message):
+    """대시보드 활동을 bot.log에 남겨 로그 뷰어에서 보이도록 한다.
+    (봇 프로세스와 같은 파일에 append — 봇이 꺼져 있어도 대시보드/autostart 로그가 보임)
+    """
+    try:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(BOT_LOG_PATH, 'a', encoding='utf-8') as f:
+            f.write(f"{ts} | DASHBOARD | {message}\n")
+    except Exception:
+        pass
 
 from security import SecurityManager
 
@@ -221,6 +234,7 @@ bot_manager = BotManager()
 @app.route('/api/bot/start', methods=['POST'])
 def start_bot():
     success, message = bot_manager.start()
+    dash_log(f"▶️ 봇 시작 요청: {message}")
     if success:
         return jsonify({"status": "success", "message": message})
     else:
@@ -229,6 +243,7 @@ def start_bot():
 @app.route('/api/bot/stop', methods=['POST'])
 def stop_bot():
     success, message = bot_manager.stop()
+    dash_log(f"⏹️ 봇 중지 요청: {message}")
     if success:
         return jsonify({"status": "success", "message": message})
     else:
@@ -355,14 +370,19 @@ def test_deposit():
         return jsonify({"status": "error", "message": f"오류 발생: {str(e)}"})
 
 if __name__ == '__main__':
+    dash_log("🖥️ 대시보드 시작됨")
     # 컨테이너 부팅 시 봇 자동 시작 (재부팅/리빌드 후에도 스케줄 자동 실행 보장).
     # 끄려면 docker-compose 환경변수에 AUTOSTART=false 추가.
     if os.getenv("AUTOSTART", "true").lower() == "true":
         try:
             started, msg = bot_manager.start()
             print(f"[AUTOSTART] {msg}")
+            dash_log(f"🚀 [AUTOSTART] {msg}")
         except Exception as e:
             print(f"[AUTOSTART] 봇 자동 시작 실패: {e}")
+            dash_log(f"⚠️ [AUTOSTART] 봇 자동 시작 실패: {e}")
+    else:
+        dash_log("ℹ️ AUTOSTART=false (봇 자동 시작 안 함)")
 
     # use_reloader=False is required when running Playwright in the same process
     # to prevent the server from restarting and killing the browser.

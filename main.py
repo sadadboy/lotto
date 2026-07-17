@@ -5,7 +5,7 @@ import os
 from loguru import logger
 from auth import login
 from buy_lotto import buy_games
-from notification import send_discord_message
+from notification import send_discord_message, set_default_tag
 
 # 설정 파일 경로
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
@@ -28,6 +28,7 @@ from security import SecurityManager
 # ... (imports)
 
 def buy_job():
+    set_default_tag("자동구매")
     logger.info("⏰ 예약된 구매 작업을 시작합니다.")
     send_discord_message("⏰ 예약된 구매 작업을 시작합니다.")
     
@@ -71,11 +72,13 @@ def buy_job():
             logger.info("브라우저 종료")
 
 def deposit_job():
-    # 예치금 충전 로직 (현재 보류 중)
+    set_default_tag("자동충전")
+    # 예치금 충전 로직 (현재 보류 중 — 실제 충전은 자금 이체이므로 비활성)
     logger.info("예치금 충전 작업 (현재 비활성화됨)")
     pass
 
 def check_winning_job():
+    set_default_tag("당첨확인")
     logger.info("⏰ 예약된 당첨 확인 작업을 시작합니다.")
     send_discord_message("⏰ 예약된 당첨 확인 작업을 시작합니다.")
     
@@ -114,6 +117,7 @@ def refresh_status_job():
     (봇을 켜면 대시보드에 현재 잔액이 바로 반영되도록)
     login() 내부에서 get_reliable_balance -> status_manager.update_balance 가 수행됨.
     """
+    set_default_tag("상태갱신")
     logger.info("🔄 시작 시 예치금/상태 1회 갱신 중...")
     config = load_config()
     if not config:
@@ -176,6 +180,7 @@ def _register_jobs(schedule_config):
         logger.error(f"잘못된 요일 설정(당첨확인): {check_day}")
 
 def run_scheduler():
+    set_default_tag("봇")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logger.info(f"🤖 로또 봇 스케줄러 시작. 서버 시간: {now}")
     send_discord_message(f"🤖 로또 봇이 시작되었습니다.\n🕒 서버 시간: {now}\n📅 설정된 스케줄을 대기합니다.")
@@ -190,6 +195,7 @@ def run_scheduler():
         refresh_status_job()
     except Exception as e:
         logger.warning(f"시작 시 갱신 중 예외(무시): {e}")
+    set_default_tag("봇")  # refresh_status_job이 바꾼 태그 복원
 
     # 스케줄 등록 (핫리로드를 위해 현재 schedule 설정을 추적)
     current_schedule_cfg = config['schedule']
