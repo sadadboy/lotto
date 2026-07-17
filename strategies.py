@@ -57,9 +57,14 @@ def predict_ai_numbers():
     from tensorflow.keras.models import load_model
     import os
     
-    model_path = "lotto_model.h5"
+    model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lotto_model.h5")
     if not os.path.exists(model_path):
-        logger.warning("모델 파일(lotto_model.h5)이 없습니다. 먼저 모델을 학습시켜주세요.")
+        logger.warning("모델 파일(lotto_model.h5)이 없습니다. AI 추천 대신 랜덤 번호를 사용합니다.")
+        try:
+            from notification import send_discord_message
+            send_discord_message("⚠️ AI 모델(lotto_model.h5)이 없어 'AI 추천'이 랜덤으로 대체됩니다. (train_model.py로 학습 필요)")
+        except Exception:
+            pass
         return get_random_numbers()
     
     logger.info("AI 모델 로드 중...")

@@ -123,14 +123,18 @@ def deposit_job():
         send_discord_message(f"💰 예치금 {balance:,}원 < 기준 {threshold:,}원 → {amount:,}원 충전을 시작합니다.")
 
         from deposit import request_deposit
-        request_deposit(page, amount=amount, payment_pw=pay_pw, dry_run=False)
+        # request_deposit이 성공/잔액부족/실패를 감지해 Discord로 상세 알림을 보내고 결과를 반환함
+        result = request_deposit(page, amount=amount, payment_pw=pay_pw, dry_run=False)
 
         # 충전 후 예치금 갱신
         new_balance = lotto.get_reliable_balance(page)
         from status_manager import status_manager
         if new_balance != -1:
             status_manager.update_balance(new_balance)
-        send_discord_message(f"✅ 충전 요청 완료. 현재 예치금: {new_balance:,}원")
+
+        status = (result or {}).get("status", "unknown")
+        logger.info(f"충전 작업 결과: {status} / 현재 예치금: {new_balance}원")
+        send_discord_message(f"📊 충전 작업 종료 (결과: {status}) — 현재 예치금 {new_balance:,}원")
 
     except Exception as e:
         logger.error(f"충전 작업 중 오류 발생: {e}")

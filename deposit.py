@@ -24,7 +24,8 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
         time.sleep(1)
     except Exception as e:
         logger.error(f"간편충전 탭을 찾을 수 없습니다: {e}")
-        return
+        send_discord_message("❌ 충전 실패 — 간편충전 탭을 찾을 수 없습니다 (사이트 구조 변경 가능성).")
+        return {"status": "failed", "message": "간편충전 탭 없음"}
 
     # 3. 금액 선택 (Select Box ID="EcAmt")
     logger.info(f"충전 금액 {amount}원 선택 중...")
@@ -32,7 +33,8 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
         page.select_option('#EcAmt', str(amount))
     except Exception as e:
         logger.error(f"금액 선택 실패: {e}")
-        return
+        send_discord_message(f"❌ 충전 실패 — 금액({amount}원) 선택 실패.")
+        return {"status": "failed", "message": "금액 선택 실패"}
     
     # 4. '충전하기' 버튼 클릭
     logger.info("충전 요청 (충전하기 버튼 클릭) 실행...")
@@ -41,15 +43,17 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
     try:
         if not page.is_visible(".easyAfter"):
             logger.error("케이뱅크 계좌가 연결되어 있지 않거나 '간편충전' 상태가 아닙니다. (easyAfter not visible)")
-            return
-            
+            send_discord_message("❌ 충전 실패 — 케이뱅크 간편충전 계좌가 연결되어 있지 않습니다. (사이트에서 계좌 연결 필요)")
+            return {"status": "failed", "message": "케이뱅크 계좌 미연결"}
+
         # Click Charge Button
         # The button calls MndpChrgM.fn_openEcRegistAccountCheck()
         page.click(".easyAfter button.btn-rec01")
-        
+
     except Exception as e:
         logger.error(f"충전하기 버튼 클릭 실패: {e}")
-        return
+        send_discord_message(f"❌ 충전 실패 — '충전하기' 버튼 클릭 실패: {e}")
+        return {"status": "failed", "message": "충전하기 버튼 클릭 실패"}
 
     # 5. 레이어 팝업(아이프레임 또는 DIV) 대기
     logger.info("결제 레이어 팝업 대기 중...")
@@ -72,13 +76,14 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
             logger.info("결제 레이어 팝업(DIV) 확인됨.")
         except Exception as e:
             logger.error(f"결제 팝업(DIV/iframe)을 찾을 수 없습니다: {e}")
-            return
+            send_discord_message("❌ 충전 실패 — 결제 보안 팝업을 찾을 수 없습니다 (사이트 구조 변경 가능성).")
+            return {"status": "failed", "message": "결제 팝업 없음"}
 
     time.sleep(2) # 팝업 로딩 대기
 
     if not payment_pw:
         logger.warning("결제 비밀번호가 없어 팝업 분석만 수행하고 종료합니다.")
-        return
+        return {"status": "failed", "message": "결제 비밀번호 없음"}
 
     # OCR을 이용한 보안 키패드 입력
     logger.info("보안 키패드 OCR 분석 및 입력 시작...")
@@ -266,35 +271,27 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
                 raise Exception(f"키패드에서 숫자 {char} 인식 실패")
     except Exception as e:
         logger.error(f"비밀번호 입력 중 오류 발생: {e}")
-        return
-    
+        send_discord_message(f"❌ 충전 실패 — 보안 키패드 비밀번호 입력 실패: {e}")
+        return {"status": "failed", "message": f"비밀번호 입력 실패: {e}"}
+
     logger.info("비밀번호 입력 완료")
     
     time.sleep(1)
     
     if dry_run:
         logger.info("🛑 [Dry Run] 결제 요청 함수(doenterCharge) 호출을 건너뜁니다.")
-        return
+        return {"status": "dry_run", "message": "dry_run"}
 
     # 결제 요청 함수(doenterCharge) 호출...
     logger.info("결제 요청 함수(doenterCharge) 호출...")
-    
-    # 알림창 감지 여부 플래그
-    dialog_detected = {"value": False}
 
-    # 알림창 처리 핸들러
+    # 알림창 메시지 캡처 (성공/부족 판정용)
+    dialog_info = {"detected": False, "message": ""}
+
     def handle_dialog(dialog):
-        dialog_detected["value"] = True
-        msg = dialog.message
-        logger.info(f"알림창 감지(Native): {msg}")
-        
-        # 키워드 완화: '부족' 또는 '잔액' 하나만 있어도 알림
-        if "부족" in msg or "잔액" in msg:
-            logger.warning("충전 계좌 잔액 부족 알림 감지!")
-            # from notification import send_discord_message
-            # send_discord_message(f"⚠️ **충전 실패 알림 (팝업)**\n내용: {msg}")
-        
-        # 알림창 닫기 (확인)
+        dialog_info["detected"] = True
+        dialog_info["message"] = dialog.message
+        logger.info(f"알림창 감지(Native): {dialog.message}")
         try:
             dialog.accept()
         except:
@@ -302,38 +299,54 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
 
     # 이벤트 리스너 등록 (팝업 창에서 발생하는 알림이므로 popup에 등록해야 함)
     popup.on("dialog", handle_dialog)
-    
+
     # 결제 실행
     popup.evaluate("doenterCharge()")
-    
-    # 결과 확인 대기 (팝업이 닫히거나 페이지가 이동될 수 있음)
-    # 은행 응답이 늦을 수 있으므로 대기 시간을 10초로 늘림
+
+    # 결과(알림창) 대기 - 은행 응답이 늦을 수 있으므로 최대 10초
     for _ in range(10):
-        if dialog_detected["value"]:
+        if dialog_info["detected"]:
             break
         time.sleep(1)
-    
-    # Native 알림이 없었다면 DOM 모달 확인
-    if not dialog_detected["value"]:
+
+    # Native 알림이 없었다면 DOM 모달에서 결과 텍스트 탐색
+    result_msg = dialog_info["message"]
+    if not dialog_info["detected"]:
         logger.info("Native 알림이 감지되지 않았습니다. DOM 모달을 확인합니다.")
         try:
-            # '부족'이라는 텍스트가 포함된 가시적인 요소 찾기
-            if popup.get_by_text("부족").is_visible():
-                text = popup.get_by_text("부족").inner_text()
-                logger.warning(f"DOM 모달 감지: {text}")
-                # from notification import send_discord_message
-                # send_discord_message(f"⚠️ **충전 실패 알림 (화면)**\n내용: {text}")
+            for kw in ("부족", "충전되었습니다", "완료", "성공", "충전"):
+                loc = popup.get_by_text(kw)
+                if loc.count() > 0 and loc.first.is_visible():
+                    result_msg = loc.first.inner_text().strip()
+                    logger.info(f"DOM 모달 감지: {result_msg}")
+                    break
         except Exception as e:
             logger.debug(f"DOM 모달 확인 중 오류(무시됨): {e}")
 
     # 이벤트 리스너 제거 (안전장치)
-    popup.remove_listener("dialog", handle_dialog)
-    
-    # 팝업이 닫혔는지 확인
-    if popup.is_closed():
-        logger.info("팝업이 닫혔습니다. 메인 페이지를 새로고침하여 잔액을 확인합니다.")
+    try:
+        popup.remove_listener("dialog", handle_dialog)
+    except Exception:
+        pass
+
+    # 결과 판정 + Discord 피드백 + 반환값
+    from notification import send_discord_message
+    if result_msg and ("부족" in result_msg or "잔액" in result_msg):
+        logger.warning(f"충전 실패(잔액 부족): {result_msg}")
+        send_discord_message(f"❌ 충전 실패 — 충전계좌(케이뱅크) 잔액 부족\n📩 사이트 알림: {result_msg}")
+        return {"status": "insufficient", "message": result_msg}
+    elif result_msg and ("충전되" in result_msg or "완료" in result_msg or "성공" in result_msg):
+        logger.success(f"충전 완료: {result_msg}")
+        send_discord_message(f"✅ 충전 완료\n📩 사이트 알림: {result_msg}")
+        return {"status": "success", "message": result_msg}
+    elif result_msg:
+        logger.info(f"충전 결과 알림: {result_msg}")
+        send_discord_message(f"ℹ️ 충전 결과 알림: {result_msg}")
+        return {"status": "unknown", "message": result_msg}
     else:
-        logger.info("팝업이 아직 열려있습니다. 결과를 캡처합니다.")
+        logger.info("충전 요청 후 응답 알림이 없습니다. 예치금 변동으로 확인 필요.")
+        send_discord_message("ℹ️ 충전 요청을 보냈으나 사이트 응답 알림이 없습니다. 예치금 변동을 확인하세요.")
+        return {"status": "unknown", "message": "no_dialog"}
 
 
 if __name__ == "__main__":
