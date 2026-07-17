@@ -137,6 +137,44 @@ def refresh_status_job():
             from auth import close_browser
             close_browser(browser)
 
+def _register_jobs(schedule_config):
+    """schedule_config에 따라 구매/충전/당첨확인 잡을 등록한다.
+    재등록(핫리로드) 시에는 호출 전에 schedule.clear()를 먼저 수행해야 한다.
+    """
+    def get_scheduler(day_name):
+        day_name = (day_name or '').lower()
+        if hasattr(schedule.every(), day_name):
+            return getattr(schedule.every(), day_name)
+        return None
+
+    # 구매
+    buy_day = schedule_config.get('buy_day', 'Saturday')
+    buy_time = schedule_config.get('buy_time', '10:00')
+    s = get_scheduler(buy_day)
+    if s:
+        s.at(buy_time).do(buy_job)
+        logger.info(f"📅 구매 예약: 매주 {buy_day} {buy_time}")
+    else:
+        logger.error(f"잘못된 요일 설정(구매): {buy_day}")
+
+    # 예치금 충전 (deposit_job은 현재 비활성 no-op)
+    deposit_day = schedule_config.get('deposit_day', 'Friday')
+    deposit_time = schedule_config.get('deposit_time', '18:00')
+    s = get_scheduler(deposit_day)
+    if s:
+        s.at(deposit_time).do(deposit_job)
+        logger.info(f"📅 충전 예약: 매주 {deposit_day} {deposit_time}")
+
+    # 당첨 확인
+    check_day = schedule_config.get('check_day', 'Saturday')
+    check_time = schedule_config.get('check_time', '23:00')
+    s = get_scheduler(check_day)
+    if s:
+        s.at(check_time).do(check_winning_job)
+        logger.info(f"📅 당첨 확인 예약: 매주 {check_day} {check_time}")
+    else:
+        logger.error(f"잘못된 요일 설정(당첨확인): {check_day}")
+
 def run_scheduler():
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logger.info(f"🤖 로또 봇 스케줄러 시작. 서버 시간: {now}")
@@ -153,67 +191,56 @@ def run_scheduler():
     except Exception as e:
         logger.warning(f"시작 시 갱신 중 예외(무시): {e}")
 
-    # 스케줄 설정
-    schedule_config = config['schedule']
-    
-    buy_day = schedule_config.get('buy_day', 'Saturday')
-    buy_time = schedule_config.get('buy_time', '10:00')
-    
-    # 요일 매핑 함수
-    def get_scheduler(day_name):
-        day_name = day_name.lower()
-        if hasattr(schedule.every(), day_name):
-            return getattr(schedule.every(), day_name)
-        return None
+    # 스케줄 등록 (핫리로드를 위해 현재 schedule 설정을 추적)
+    current_schedule_cfg = config['schedule']
+    _register_jobs(current_schedule_cfg)
+    send_discord_message(f"📅 스케줄 등록됨: {current_schedule_cfg}")
 
-    scheduler = get_scheduler(buy_day)
-    if scheduler:
-        scheduler.at(buy_time).do(buy_job)
-        logger.info(f"📅 구매 예약: 매주 {buy_day} {buy_time}")
-        send_discord_message(f"📅 구매 예약됨: 매주 {buy_day} {buy_time}")
-    else:
-        logger.error(f"잘못된 요일 설정: {buy_day}")
-
-    # 예치금 충전 스케줄
-    deposit_day = schedule_config.get('deposit_day', 'Friday')
-    deposit_time = schedule_config.get('deposit_time', '18:00')
-    scheduler = get_scheduler(deposit_day)
-    if scheduler:
-        scheduler.at(deposit_time).do(deposit_job)
-        logger.info(f"📅 충전 예약: 매주 {deposit_day} {deposit_time}")
-        send_discord_message(f"📅 충전 예약됨: 매주 {deposit_day} {deposit_time}")
-
-    # 당첨 확인 스케줄 (기본값: 토요일 23:00)
-    check_day = schedule_config.get('check_day', 'Saturday')
-    check_time = schedule_config.get('check_time', '23:00')
-    
-    scheduler = get_scheduler(check_day)
-    if scheduler:
-        scheduler.at(check_time).do(check_winning_job)
-        logger.info(f"📅 당첨 확인 예약: 매주 {check_day} {check_time}")
-        send_discord_message(f"📅 당첨 확인 예약됨: 매주 {check_day} {check_time}")
-    else:
-        logger.error(f"잘못된 당첨 확인 요일 설정: {check_day}")
-
-    # 스케줄링된 작업 확인 및 로그
     logger.info("📋 예약된 작업 목록:")
     for job in schedule.get_jobs():
         logger.info(f"   - {job} (다음 실행: {job.next_run})")
-        
+
     logger.info("🚀 스케줄러 루프 진입")
-    
-    # 하트비트 설정 (1분마다 로그)
+
+    # config.json 변경 감지를 위한 mtime 추적
+    # (대시보드/파일에서 스케줄 시간을 바꾸면 봇 재시작 없이 자동 반영)
+    try:
+        last_mtime = os.path.getmtime(CONFIG_PATH)
+    except Exception:
+        last_mtime = 0
+
     last_heartbeat = time.time()
-    
+    last_reload_check = time.time()
+
     while True:
         schedule.run_pending()
-        
-        # 1분마다 하트비트 로그
         current_time = time.time()
+
+        # 5초마다 config.json 변경 확인 → 스케줄 핫리로드
+        if current_time - last_reload_check > 5:
+            last_reload_check = current_time
+            try:
+                mtime = os.path.getmtime(CONFIG_PATH)
+                if mtime != last_mtime:
+                    last_mtime = mtime
+                    new_config = load_config()
+                    new_sched = new_config.get('schedule') if new_config else None
+                    if new_sched and new_sched != current_schedule_cfg:
+                        logger.info(f"⚙️ 스케줄 변경 감지 → 재등록: {new_sched}")
+                        send_discord_message(f"⚙️ 스케줄이 변경되어 새 시간으로 재설정합니다.\n{new_sched}")
+                        schedule.clear()
+                        current_schedule_cfg = new_sched
+                        _register_jobs(current_schedule_cfg)
+                        for job in schedule.get_jobs():
+                            logger.info(f"   - {job} (다음 실행: {job.next_run})")
+            except Exception as e:
+                logger.warning(f"스케줄 리로드 확인 중 오류: {e}")
+
+        # 1분마다 하트비트 로그
         if current_time - last_heartbeat > 60:
             logger.debug(f"💓 Scheduler Heartbeat - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             last_heartbeat = current_time
-            
+
         time.sleep(1)
 
 if __name__ == "__main__":

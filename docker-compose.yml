@@ -20,6 +20,7 @@ services:
     environment:
       - TZ=Asia/Seoul
       - HEADLESS=true
-      # Add any other environment variables here if needed
+      # 컨테이너 시작 시 봇(스케줄러) 자동 실행. 끄려면 false.
+      - AUTOSTART=true
     stdin_open: true # docker run -i
     tty: true        # docker run -t

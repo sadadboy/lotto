@@ -344,6 +344,15 @@ def test_deposit():
         return jsonify({"status": "error", "message": f"오류 발생: {str(e)}"})
 
 if __name__ == '__main__':
+    # 컨테이너 부팅 시 봇 자동 시작 (재부팅/리빌드 후에도 스케줄 자동 실행 보장).
+    # 끄려면 docker-compose 환경변수에 AUTOSTART=false 추가.
+    if os.getenv("AUTOSTART", "true").lower() == "true":
+        try:
+            started, msg = bot_manager.start()
+            print(f"[AUTOSTART] {msg}")
+        except Exception as e:
+            print(f"[AUTOSTART] 봇 자동 시작 실패: {e}")
+
     # use_reloader=False is required when running Playwright in the same process
     # to prevent the server from restarting and killing the browser.
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
