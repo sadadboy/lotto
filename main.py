@@ -73,9 +73,73 @@ def buy_job():
 
 def deposit_job():
     set_default_tag("자동충전")
-    # 예치금 충전 로직 (현재 보류 중 — 실제 충전은 자금 이체이므로 비활성)
-    logger.info("예치금 충전 작업 (현재 비활성화됨)")
-    pass
+    logger.info("⏰ 예약된 충전 작업을 시작합니다.")
+    send_discord_message("⏰ 예약된 충전 작업을 시작합니다.")
+
+    config = load_config()
+    if not config:
+        return
+
+    security_manager = SecurityManager()
+    user_id = config['account']['user_id']
+    user_pw = security_manager.decrypt(config['account']['user_pw'])
+    pay_pw = security_manager.decrypt(config['account'].get('pay_pw', ''))
+
+    if not user_pw:
+        logger.error("비밀번호 복호화 실패")
+        send_discord_message("❌ 비밀번호 복호화 실패")
+        return
+
+    # 간편충전 보안 키패드는 6자리 숫자 PIN을 입력함. 형식이 다르면 키패드 입력이 실패하므로 사전 차단.
+    if not pay_pw or not (pay_pw.isdigit() and len(pay_pw) == 6):
+        msg = "❌ 결제 비밀번호가 6자리 숫자가 아닙니다. 동행복권 간편충전 비밀번호(6자리)를 설정 후 다시 시도하세요. (충전 건너뜀)"
+        logger.error(msg)
+        send_discord_message(msg)
+        return
+
+    deposit_cfg = config.get('deposit', {})
+    try:
+        threshold = int(deposit_cfg.get('threshold', 5000))
+        amount = int(deposit_cfg.get('amount', 5000))
+    except (TypeError, ValueError):
+        logger.error("deposit 설정(threshold/amount)이 올바르지 않습니다.")
+        return
+
+    import lotto
+    browser = None
+    try:
+        browser, page = login(user_id, user_pw, headless=True)
+
+        # 현재 예치금 확인 (기준 이상이면 충전 불필요)
+        balance = lotto.get_reliable_balance(page)
+        logger.info(f"현재 예치금: {balance}원 / 충전 기준: {threshold}원")
+
+        if balance != -1 and balance >= threshold:
+            msg = f"ℹ️ 예치금이 충분합니다 ({balance:,}원 ≥ 기준 {threshold:,}원). 충전을 건너뜁니다."
+            logger.info(msg)
+            send_discord_message(msg)
+            return
+
+        send_discord_message(f"💰 예치금 {balance:,}원 < 기준 {threshold:,}원 → {amount:,}원 충전을 시작합니다.")
+
+        from deposit import request_deposit
+        request_deposit(page, amount=amount, payment_pw=pay_pw, dry_run=False)
+
+        # 충전 후 예치금 갱신
+        new_balance = lotto.get_reliable_balance(page)
+        from status_manager import status_manager
+        if new_balance != -1:
+            status_manager.update_balance(new_balance)
+        send_discord_message(f"✅ 충전 요청 완료. 현재 예치금: {new_balance:,}원")
+
+    except Exception as e:
+        logger.error(f"충전 작업 중 오류 발생: {e}")
+        send_discord_message(f"❌ 충전 작업 중 오류 발생: {e}")
+    finally:
+        if browser:
+            from auth import close_browser
+            close_browser(browser)
+            logger.info("브라우저 종료")
 
 def check_winning_job():
     set_default_tag("당첨확인")
