@@ -48,16 +48,27 @@ def check_winning_result(page):
         send_discord_message("ℹ️ 최근 구매 내역을 찾을 수 없거나 캡처에 실패했습니다.")
         return
 
+    import re
+    result = result or ""
+
     msg = f"🎰 **{round_num}회 로또 당첨 확인**\n"
     msg += f"📅 구입일: {buy_date}\n"
     msg += f"📊 결과: **{result}**"
-    
-    if "미추첨" in result:
-        msg += "\n(아직 추첨이 진행되지 않았습니다.)"
-    elif "낙첨" in result:
+
+    # 거짓 당첨 방지: '당첨'은 낙첨/미추첨이 아니면서 등수(N등)나 '당첨'이 명확할 때만 알림.
+    is_lose = ("낙첨" in result) or ("미당첨" in result) or ("꽝" in result)
+    is_pending = ("미추첨" in result) or ("추첨전" in result) or ("추첨중" in result) or ("추첨 중" in result)
+    is_win = (not is_lose and not is_pending) and (bool(re.search(r'[1-5]\s*등', result)) or "당첨" in result)
+
+    if is_lose:
         msg += "\n(다음 기회에... 😭)"
-    else:
+    elif is_pending:
+        msg += "\n(아직 추첨 전이거나 결과 반영 전입니다.)"
+    elif is_win:
         msg += "\n🎉 **축하합니다! 당첨되셨습니다!** 🎉"
+    else:
+        # 불확실한 경우 절대 당첨이라고 하지 않는다.
+        msg += "\n(결과를 확정하지 못했습니다. 사이트에서 직접 확인해주세요.)"
         
     if screenshot_path:
         send_discord_file(screenshot_path, msg)
