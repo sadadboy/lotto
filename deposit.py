@@ -297,11 +297,33 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
         except:
             pass
 
-    # 이벤트 리스너 등록 (팝업 창에서 발생하는 알림이므로 popup에 등록해야 함)
-    popup.on("dialog", handle_dialog)
+    # 알림창(alert)은 페이지 레벨 이벤트이므로 메인 page에 등록 (popup이 iframe이어도 여기서 잡힘)
+    page.on("dialog", handle_dialog)
 
-    # 결제 실행
-    popup.evaluate("doenterCharge()")
+    # 결제 실행: 리뉴얼 사이트에서 doenterCharge()는 메인 window의 전역 함수다.
+    # popup이 iframe이면 그 컨텍스트엔 함수가 없어 "doenterCharge is not defined"가 나므로,
+    # 함수가 정의된 컨텍스트(메인 우선)를 찾아 호출한다.
+    charge_called = False
+    for _ctx, _name in ((page, "main"), (popup, "popup")):
+        if _ctx is None:
+            continue
+        try:
+            if _ctx.evaluate("typeof doenterCharge === 'function'"):
+                _ctx.evaluate("doenterCharge()")
+                logger.info(f"doenterCharge() 호출 성공 ({_name} 컨텍스트)")
+                charge_called = True
+                break
+        except Exception as e:
+            logger.debug(f"{_name} 컨텍스트에서 doenterCharge 호출 시도 실패: {e}")
+
+    if not charge_called:
+        logger.error("doenterCharge 함수를 어느 컨텍스트에서도 찾지 못했습니다.")
+        send_discord_message("❌ 충전 실패 — 결제 실행 함수(doenterCharge)를 찾을 수 없습니다 (사이트 결제 로직 변경 가능성).")
+        try:
+            page.remove_listener("dialog", handle_dialog)
+        except Exception:
+            pass
+        return {"status": "failed", "message": "doenterCharge 없음"}
 
     # 결과(알림창) 대기 - 은행 응답이 늦을 수 있으므로 최대 10초
     for _ in range(10):
@@ -315,7 +337,7 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
         logger.info("Native 알림이 감지되지 않았습니다. DOM 모달을 확인합니다.")
         try:
             for kw in ("부족", "충전되었습니다", "완료", "성공", "충전"):
-                loc = popup.get_by_text(kw)
+                loc = page.get_by_text(kw)
                 if loc.count() > 0 and loc.first.is_visible():
                     result_msg = loc.first.inner_text().strip()
                     logger.info(f"DOM 모달 감지: {result_msg}")
@@ -323,9 +345,9 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
         except Exception as e:
             logger.debug(f"DOM 모달 확인 중 오류(무시됨): {e}")
 
-    # 이벤트 리스너 제거 (안전장치)
+    # 이벤트 리스너 제거 (안전장치) - page에 등록했으므로 page에서 제거
     try:
-        popup.remove_listener("dialog", handle_dialog)
+        page.remove_listener("dialog", handle_dialog)
     except Exception:
         pass
 

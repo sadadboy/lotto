@@ -1,5 +1,15 @@
 [
     {
+        "version": "v1.2.6",
+        "date": "2026-07-16",
+        "title": "자동충전 실행 오류 수정 (doenterCharge)",
+        "changes": [
+            "충전 실행 함수 doenterCharge를 함수가 정의된 메인 페이지 컨텍스트에서 호출하도록 수정 ('doenterCharge is not defined' 오류 해결)",
+            "충전 결과 알림창을 페이지 레벨에서 감지하도록 개선",
+            "함수를 못 찾으면 명확한 실패 알림 후 종료"
+        ]
+    },
+    {
         "version": "v1.2.5",
         "date": "2026-07-16",
         "title": "당첨확인 거짓 '당첨' 알림 수정",
