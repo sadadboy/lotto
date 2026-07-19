@@ -325,25 +325,49 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
             pass
         return {"status": "failed", "message": "doenterCharge 없음"}
 
-    # 결과(알림창) 대기 - 은행 응답이 늦을 수 있으므로 최대 10초
+    # 결과 대기: 동행복권은 native alert 대신 커스텀 알림 팝업을 쓴다.
+    #   구조: <div class="pop-up"> <.pop-head-tit>알림</> <메시지> <button id="btnAlertPop">확인</button> </div>
+    # native alert 또는 이 팝업이 뜰 때까지 최대 10초 대기하고 메시지를 추출한다.
+    result_msg = ""
     for _ in range(10):
         if dialog_info["detected"]:
+            result_msg = dialog_info["message"]
             break
+        try:
+            alert_btn = page.locator('#btnAlertPop')
+            if alert_btn.count() > 0 and alert_btn.first.is_visible():
+                # 알림 팝업 컨테이너(.pop-up) 전체 텍스트에서 제목/버튼을 제외한 메시지 추출
+                try:
+                    full = alert_btn.first.evaluate(
+                        "b => ((b.closest('.pop-up') || b.parentElement).innerText || '').trim()")
+                except Exception:
+                    full = ""
+                lines = [ln.strip() for ln in (full or "").split('\n')
+                         if ln.strip() and ln.strip() not in ('알림', '확인', '닫기', '취소')]
+                result_msg = " ".join(lines) if lines else (full or "알림 팝업 감지")
+                logger.info(f"알림 팝업 메시지: {result_msg}")
+                # 팝업 닫기
+                try:
+                    alert_btn.first.click()
+                except Exception:
+                    pass
+                break
+        except Exception:
+            pass
         time.sleep(1)
 
-    # Native 알림이 없었다면 DOM 모달에서 결과 텍스트 탐색
-    result_msg = dialog_info["message"]
-    if not dialog_info["detected"]:
-        logger.info("Native 알림이 감지되지 않았습니다. DOM 모달을 확인합니다.")
+    # 마지막 폴백: 화면 텍스트 키워드 검색
+    if not result_msg:
+        logger.info("알림 팝업/네이티브 알림 미감지. 화면 텍스트를 확인합니다.")
         try:
             for kw in ("부족", "충전되었습니다", "완료", "성공", "충전"):
                 loc = page.get_by_text(kw)
                 if loc.count() > 0 and loc.first.is_visible():
                     result_msg = loc.first.inner_text().strip()
-                    logger.info(f"DOM 모달 감지: {result_msg}")
+                    logger.info(f"DOM 텍스트 감지: {result_msg}")
                     break
         except Exception as e:
-            logger.debug(f"DOM 모달 확인 중 오류(무시됨): {e}")
+            logger.debug(f"DOM 텍스트 확인 중 오류(무시됨): {e}")
 
     # 이벤트 리스너 제거 (안전장치) - page에 등록했으므로 page에서 제거
     try:
@@ -357,6 +381,11 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
         logger.warning(f"충전 실패(잔액 부족): {result_msg}")
         send_discord_message(f"❌ 충전 실패 — 충전계좌(케이뱅크) 잔액 부족\n📩 사이트 알림: {result_msg}")
         return {"status": "insufficient", "message": result_msg}
+    elif result_msg and ("비밀번호" in result_msg) and ("실패" in result_msg or "정확" in result_msg or "재설정" in result_msg or "오류" in result_msg):
+        # 간편충전 비밀번호 오류 (5회 실패 시 잠김 → 즉시 알리고 중단)
+        logger.error(f"충전 실패(결제비밀번호 오류): {result_msg}")
+        send_discord_message(f"❌ 충전 실패 — 간편충전 비밀번호 오류\n📩 사이트 알림: {result_msg}\n⚠️ 5회 실패 시 비밀번호가 잠깁니다. 설정을 확인하세요.")
+        return {"status": "pw_error", "message": result_msg}
     elif result_msg and ("충전되" in result_msg or "완료" in result_msg or "성공" in result_msg):
         logger.success(f"충전 완료: {result_msg}")
         send_discord_message(f"✅ 충전 완료\n📩 사이트 알림: {result_msg}")

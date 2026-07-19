@@ -1,5 +1,15 @@
 [
     {
+        "version": "v1.2.7",
+        "date": "2026-07-16",
+        "title": "자동충전 결과 감지 정확화",
+        "changes": [
+            "동행복권 커스텀 알림 팝업(.pop-up/#btnAlertPop)의 메시지를 정확히 추출하도록 개선 (native alert 아님)",
+            "간편충전 비밀번호 오류를 별도 상태(pw_error)로 감지·알림 (5회 실패 시 잠김 경고 포함)",
+            "실제 사이트 응답으로 doenterCharge 실행·결과감지 로직 검증 완료"
+        ]
+    },
+    {
         "version": "v1.2.6",
         "date": "2026-07-16",
         "title": "자동충전 실행 오류 수정 (doenterCharge)",
