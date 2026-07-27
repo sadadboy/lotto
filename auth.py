@@ -95,6 +95,29 @@ def login(user_id, user_pw, headless=False):
         # 다이얼로그(alert) 핸들러 등록
         page.on("dialog", lambda dialog: logger.warning(f"로그인 중 알림창 감지: {dialog.message}") or dialog.accept())
 
+        # [안정화] 로그인 폼(#inpUserId)이 뜰 때까지 재시도.
+        # 클라우드(GCP 등) 환경에서 사이트 응답이 느려 폼이 30초 내 안 뜨면
+        # 'waiting for locator("#inpUserId")' 타임아웃이 나므로, 로그인 페이지를 재이동하며 재시도한다.
+        form_ready = False
+        for attempt in range(1, 4):
+            try:
+                page.wait_for_selector('#inpUserId', state='visible', timeout=30000)
+                form_ready = True
+                break
+            except Exception:
+                logger.warning(f"로그인 폼(#inpUserId) 미발견 (시도 {attempt}/3). 로그인 페이지 재이동...")
+                try:
+                    page.goto("https://dhlottery.co.kr/login", timeout=120000, wait_until='domcontentloaded')
+                    time.sleep(2)
+                except Exception as e:
+                    logger.warning(f"로그인 페이지 재이동 실패(계속 시도): {e}")
+        if not form_ready:
+            try:
+                page.screenshot(path="login_form_notfound.png")
+            except Exception:
+                pass
+            raise Exception("로그인 폼(#inpUserId)을 찾지 못했습니다 (사이트 응답 지연/차단 가능성). 잠시 후 재시도됩니다.")
+
         logger.info(f"아이디/비밀번호 입력 중... ID: {user_id}")
         # 2026 리뉴얼: 셀렉터 변경
         # 아이디 입력 (#inpUserId)
