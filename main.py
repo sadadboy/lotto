@@ -4,7 +4,7 @@ import json
 import os
 from loguru import logger
 from auth import login
-from buy_lotto import buy_games
+from buy_lotto import buy_games, prepare_games
 from notification import send_discord_message, set_default_tag
 
 # 설정 파일 경로
@@ -56,11 +56,20 @@ def buy_job():
     
     browser = None
     try:
+        # 번호를 먼저 확정한 뒤에 로그인한다.
+        # 당첨번호 조회/AI 모델 로드를 구매창을 띄운 채로 하면 '게임 접속 시간'이 쌓여
+        # 동행복권 Break time 안내창이 뜨고, 그때부터 모든 클릭이 막힌다.
+        prepared = prepare_games(games_config)
+        if not prepared:
+            logger.info("활성화된 게임이 없어 구매를 건너뜁니다.")
+            send_discord_message("ℹ️ 활성화된 게임이 없어 구매를 건너뜁니다.")
+            return
+
         # 로그인
         browser, page = login(user_id, user_pw, headless=headless)
         
         # 구매 진행
-        buy_games(page, games_config, dry_run=False) # 실제 구매!
+        buy_games(page, games_config, dry_run=False, prepared_games=prepared) # 실제 구매!
         
     except Exception as e:
         logger.error(f"구매 작업 중 오류 발생: {e}")

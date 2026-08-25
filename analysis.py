@@ -1,67 +1,53 @@
-import requests
-import pandas as pd
-from datetime import datetime
-import time
-from loguru import logger
+"""당첨번호 전체 이력 수집 (lotto_history.csv 생성/보강).
+
+구 API(common.do?method=getLottoNumber)가 리뉴얼로 폐기되어 조회가 전부 실패했다.
+실제 조회는 lotto_api 모듈이 담당하고, 여기서는 CSV 저장만 맡는다.
+회차를 1건씩 훑지 않고 10건 단위 배치로 받으므로 전체 수집도 1/10 요청이면 끝난다.
+"""
+
 import os
 
-def get_latest_drw_no():
-    """현재 최신 회차 번호를 계산합니다."""
-    start_date = datetime(2002, 12, 7)
-    now = datetime.now()
-    diff = now - start_date
-    return diff.days // 7 + 1
+import pandas as pd
+from loguru import logger
 
-def fetch_lotto_data(drw_no):
-    """특정 회차의 로또 데이터를 가져옵니다."""
-    url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={drw_no}"
-    try:
-        res = requests.get(url, timeout=3)
-        data = res.json()
-        if data.get("returnValue") == "success":
-            return {
-                "drwNo": data["drwNo"],
-                "date": data["drwNoDate"],
-                "num1": data["drwtNo1"],
-                "num2": data["drwtNo2"],
-                "num3": data["drwtNo3"],
-                "num4": data["drwtNo4"],
-                "num5": data["drwtNo5"],
-                "num6": data["drwtNo6"],
-                "bonus": data["bnusNo"]
-            }
-        else:
-            return None
-    except Exception as e:
-        logger.error(f"회차 {drw_no} 조회 실패: {e}")
-        return None
+import lotto_api
+
+# 기존 호출부 호환용 (analysis.get_latest_drw_no / analysis.fetch_lotto_data)
+get_latest_drw_no = lotto_api.estimate_latest_drw_no
+fetch_lotto_data = lotto_api.fetch_lotto_data
+
 
 def fetch_all_history(filename="lotto_history.csv"):
-    """1회부터 최신 회차까지 모든 데이터를 수집하여 CSV로 저장합니다."""
-    latest_drw = get_latest_drw_no()
+    """1회부터 최신 회차까지 모든 데이터를 수집하여 CSV로 저장합니다.
+
+    이미 수집된 회차는 lotto_history.csv 캐시에서 재사용하므로,
+    이어받기(빠진 회차만 보강)로 동작합니다.
+    """
+    latest_drw = lotto_api.resolve_latest_drw_no()
     logger.info(f"데이터 수집 시작 (1회 ~ {latest_drw}회)")
-    
-    all_data = []
-    
-    # 기존 데이터가 있다면 로드해서 중복 방지 (선택 사항)
-    # 여기서는 덮어쓰기 모드로 진행
-    
-    for drw_no in range(1, latest_drw + 1):
-        data = fetch_lotto_data(drw_no)
-        if data:
-            all_data.append(data)
-            if drw_no % 100 == 0:
-                logger.info(f"{drw_no}회차 수집 완료...")
-        else:
-            logger.warning(f"{drw_no}회차 데이터 없음")
-        
-        # 서버 부하 방지
-        time.sleep(0.05)
-        
-    df = pd.DataFrame(all_data)
-    df.to_csv(filename, index=False, encoding='utf-8-sig')
-    logger.success(f"데이터 수집 완료! 총 {len(df)}행 저장됨: {filename}")
+
+    # fetch_draws가 캐시에 없는 회차만 배치로 받아오고, 받은 건 캐시에 병합해준다.
+    rows = lotto_api.fetch_draws(latest_drw, latest=latest_drw)
+
+    if not rows:
+        logger.error("당첨번호를 한 건도 받지 못했습니다. 네트워크/API 상태를 확인하세요.")
+        return pd.DataFrame()
+
+    missing = latest_drw - len(rows)
+    if missing:
+        logger.warning(f"{missing}개 회차를 받지 못했습니다. 다시 실행하면 빠진 회차만 재시도합니다.")
+
+    df = pd.DataFrame(rows)[
+        ["drwNo", "date", "num1", "num2", "num3", "num4", "num5", "num6", "bonus"]
+    ].sort_values("drwNo")
+
+    target = filename if os.path.isabs(filename) else os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), filename
+    )
+    df.to_csv(target, index=False, encoding="utf-8-sig")
+    logger.success(f"데이터 수집 완료! 총 {len(df)}행 저장됨: {target}")
     return df
+
 
 if __name__ == "__main__":
     fetch_all_history()
