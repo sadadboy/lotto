@@ -5,6 +5,7 @@ from loguru import logger
 import lotto
 
 from notification import send_discord_message, send_discord_file
+from keypad_ocr import KeypadOCR, KeypadOCRError
 
 def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_run: bool = False):
     """
@@ -87,19 +88,11 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
 
     # OCR을 이용한 보안 키패드 입력
     logger.info("보안 키패드 OCR 분석 및 입력 시작...")
-    
-    import cv2
-    import easyocr
-    import numpy as np
-    
-    # EasyOCR 리더 초기화 (한 번만)
-    if 'reader' not in locals():
-        reader = easyocr.Reader(['en'], gpu=False)
-    
+
     # 키패드 요소 찾기
     keypad_selector = '#nppfs-keypad-ecpassword'
     keypad_elem = popup.locator(keypad_selector)
-    
+
     # 키패드가 보일 때까지 대기
     try:
         keypad_elem.wait_for(state="visible", timeout=5000)
@@ -107,185 +100,64 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
         logger.info("키패드가 보이지 않아 강제로 표시합니다.")
         popup.evaluate(f"document.querySelector('{keypad_selector}').style.display = 'block'")
         time.sleep(1)
-    
+
     # 키패드 위치 및 크기 정보 가져오기
     box = keypad_elem.bounding_box()
     if not box:
         raise Exception("키패드 영역을 찾을 수 없습니다.")
-    
-    keypad_x = box['x']
-    keypad_y = box['y']
-    keypad_w = box['width']
-    keypad_h = box['height']
-    
-    logger.info(f"키패드 영역: x={keypad_x}, y={keypad_y}, w={keypad_w}, h={keypad_h}")
-    
+
+    logger.info(f"키패드 영역: x={box['x']}, y={box['y']}, w={box['width']}, h={box['height']}")
+
     # OCR 및 재시도 루프 (JS Refresh 사용)
+    # easyocr(PyTorch)는 반드시 별도 프로세스에서 돌린다. 같은 프로세스에 올리면
+    # 구매 작업이 적재해 둔 TensorFlow와 충돌해 프로세스가 SIGSEGV로 즉사하고,
+    # 예외가 아니므로 아래 except도 Discord 알림도 동작하지 않는다.
     max_retries = 10
     digit_map = {}
-    
-    for attempt in range(max_retries):
-        logger.info(f"OCR 분석 시도 {attempt + 1}/{max_retries}...")
-        
-        # 키패드 스크린샷 캡처
-        screenshot_path = f"keypad_try_{attempt}.png"
-        keypad_elem.screenshot(path=screenshot_path)
-        try:
-            pass
-            # send_discord_file(screenshot_path, f"🔐 보안 키패드 캡처 (시도 {attempt+1})")
-        except:
-            pass
-        
-        # 이미지 로드 및 전처리
-        img = cv2.imread(screenshot_path)
-        rows = 4
-        cols = 3
-        cell_w = img.shape[1] // cols
-        cell_h = img.shape[0] // rows
-        
-        digit_map = {}
-        
-        # 디버그용 폴더 생성
-        if not os.path.exists("debug_cells"):
-            os.makedirs("debug_cells")
 
-        for r in range(rows):
-            for c in range(cols):
-                # 마지막 줄의 첫 번째(전체삭제)와 세 번째(백스페이스)는 숫자가 아니므로 건너뜀
-                if r == 3 and (c == 0 or c == 2):
-                    continue
-
-                x = c * cell_w
-                y = r * cell_h
-                
-                # 셀 잘라내기 (마진 추가하여 테두리 제거)
-                margin = 5
-                if cell_h > 2 * margin and cell_w > 2 * margin:
-                    cell = img[y+margin:y+cell_h-margin, x+margin:x+cell_w-margin]
-                else:
-                    cell = img[y:y+cell_h, x:x+cell_w]
-
-                # 전처리: 2배 확대 (OCR 인식률 향상)
-                cell = cv2.resize(cell, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-                
-                # 전처리: 흑백 변환
-                gray = cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY)
-                
-                # 디버그 이미지 저장
-                cv2.imwrite(f"debug_cells/cell_{attempt}_{r}_{c}.png", gray)
-
-                # 여러 전처리 방법 시도
-                methods = [
-                    ("Threshold 150 Inv", cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV)[1]),
-                    ("Otsu Inv", cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]),
-                    ("Adaptive Mean", cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 11, 2)),
-                    ("Adaptive Gaussian", cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)),
-                    ("Raw Gray", gray),
-                ]
-                
-                found_digit = None
-                
-                for name, processed_img in methods:
-                    # 숫자와 비슷하게 생긴 알파벳도 허용 (0 인식을 위해)
-                    results = reader.readtext(processed_img, allowlist='0123456789OoDQ')
-                    
-                    # 가장 신뢰도 높은 숫자 선택
-                    best_digit = None
-                    max_prob = 0.0
-                    
-                    for (bbox, t, prob) in results:
-                        # 매핑: 알파벳을 숫자로 변환
-                        t = t.replace('O', '0').replace('o', '0').replace('D', '0').replace('Q', '0')
-                        
-                        # 숫자만 추출
-                        d = "".join(filter(str.isdigit, t))
-                        if d and prob > max_prob:
-                            max_prob = prob
-                            best_digit = d[0] # 첫 번째 숫자 선택
-                    
-                    if best_digit and max_prob > 0.3: # 신뢰도 기준 약간 완화 (0.4 -> 0.3)
-                        found_digit = best_digit
-                        # logger.debug(f"Method {name} found: {found_digit} (prob: {max_prob:.2f})")
-                        break # 숫자를 찾으면 중단
-                
-                if found_digit:
-                    # 클릭할 좌표 (키패드 요소 내 상대 좌표)
-                    rel_x = x + (cell_w // 2)
-                    rel_y = y + (cell_h // 2)
-                    digit_map[found_digit] = (rel_x, rel_y)
-                    logger.debug(f"숫자 '{found_digit}' 발견 (R{r}C{c}): ({rel_x}, {rel_y}) relative")
-        
-        # '0'을 못 찾았는데 (3,1) 위치가 비어있다면, 그곳을 '0'으로 추정 (표준 레이아웃)
-        if '0' not in digit_map:
-            # (3,1) 좌표 계산 (상대 좌표)
-            zero_r, zero_c = 3, 1
-            zero_x = (zero_c * cell_w) + (cell_w // 2)
-            zero_y = (zero_r * cell_h) + (cell_h // 2)
-            
-            # 이미 다른 숫자로 매핑되었는지 확인
-            is_occupied = False
-            for k, v in digit_map.items():
-                if v == (zero_x, zero_y):
-                    is_occupied = True
-                    break
-            
-            if not is_occupied:
-                logger.warning("'0'을 OCR로 찾지 못했습니다. 표준 위치(3, 1)를 '0'으로 가정합니다.")
-                digit_map['0'] = (zero_x, zero_y)
-        
-        # 필요한 모든 숫자가 있는지 확인
-        missing_digits = [d for d in payment_pw if d not in digit_map]
-        
-        if not missing_digits:
-            logger.success("모든 비밀번호 숫자를 찾았습니다!")
-            break
-        else:
-            logger.warning(f"숫자 {missing_digits}를 찾지 못했습니다. 키패드를 새로고침합니다.")
-            
-            # 이전 스크린샷과 비교하여 새로고침 확인 (선택 사항)
-            # ...
-            
-            # 새로고침 버튼 클릭 (JS로 강제 클릭)
-            try:
-                popup.evaluate("document.querySelector('img[data-action=\"action:refresh\"]').click()")
-                time.sleep(2) # 새로고침 대기
-            except Exception as e:
-                logger.error(f"새로고침 클릭 실패: {e}")
-                time.sleep(1)
-    
-    if not digit_map or [d for d in payment_pw if d not in digit_map]:
-            missing_digits = [d for d in payment_pw if d not in digit_map]
-            raise Exception(f"비밀번호 숫자를 모두 찾지 못했습니다. (미발견: {missing_digits})")
-
-    # 비밀번호 입력
-    # 비밀번호 입력
-    logger.info(f"비밀번호 입력 시작 (총 {len(payment_pw)}자리)")
     try:
-        for i, char in enumerate(payment_pw):
-            if char in digit_map:
-                rx, ry = digit_map[char]
-                logger.info(f"[{i+1}/{len(payment_pw)}] 숫자 '{char}' 클릭 -> ({rx}, {ry}) relative")
-                keypad_elem.click(position={'x': rx, 'y': ry})
-                time.sleep(1.0) # 입력 간 딜레이
-            else:
-                raise Exception(f"키패드에서 숫자 {char} 인식 실패")
-    except Exception as e:
-        logger.error(f"비밀번호 입력 중 오류 발생: {e}")
-        send_discord_message(f"❌ 충전 실패 — 보안 키패드 비밀번호 입력 실패: {e}")
-        return {"status": "failed", "message": f"비밀번호 입력 실패: {e}"}
+        with KeypadOCR() as ocr:
+            for attempt in range(max_retries):
+                logger.info(f"OCR 분석 시도 {attempt + 1}/{max_retries}...")
 
-    logger.info("비밀번호 입력 완료")
-    
-    time.sleep(1)
-    
-    if dry_run:
-        logger.info("🛑 [Dry Run] 결제 요청 함수(doenterCharge) 호출을 건너뜁니다.")
-        return {"status": "dry_run", "message": "dry_run"}
+                # 키패드 스크린샷 캡처
+                screenshot_path = f"keypad_try_{attempt}.png"
+                keypad_elem.screenshot(path=screenshot_path)
 
-    # 결제 요청 함수(doenterCharge) 호출...
-    logger.info("결제 요청 함수(doenterCharge) 호출...")
+                digit_map, zero_assumed = ocr.analyze(screenshot_path, attempt=attempt)
 
-    # 알림창 메시지 캡처 (성공/부족 판정용)
+                if zero_assumed:
+                    logger.warning("'0'을 OCR로 찾지 못했습니다. 표준 위치(3, 1)를 '0'으로 가정합니다.")
+                for d, (rel_x, rel_y) in sorted(digit_map.items()):
+                    logger.debug(f"숫자 '{d}' 발견: ({rel_x}, {rel_y}) relative")
+
+                # 필요한 모든 숫자가 있는지 확인
+                missing_digits = [d for d in payment_pw if d not in digit_map]
+                if not missing_digits:
+                    logger.success("모든 비밀번호 숫자를 찾았습니다!")
+                    break
+
+                logger.warning(f"숫자 {missing_digits}를 찾지 못했습니다. 키패드를 새로고침합니다.")
+
+                # 새로고침 버튼 클릭 (JS로 강제 클릭)
+                try:
+                    popup.evaluate("document.querySelector('img[data-action=\"action:refresh\"]').click()")
+                    time.sleep(2)  # 새로고침 대기
+                except Exception as e:
+                    logger.error(f"새로고침 클릭 실패: {e}")
+                    time.sleep(1)
+    except KeypadOCRError as e:
+        logger.error(f"보안 키패드 OCR 실패: {e}")
+        send_discord_message(f"❌ 충전 실패 — 보안 키패드 OCR 처리 실패: {e}")
+        return {"status": "failed", "message": f"키패드 OCR 실패: {e}"}
+
+    missing_digits = [d for d in payment_pw if d not in digit_map]
+    if missing_digits:
+        raise Exception(f"비밀번호 숫자를 모두 찾지 못했습니다. (미발견: {missing_digits})")
+
+    # 결제 결과 알림창 핸들러를 비밀번호 입력 "전에" 등록한다.
+    # 이 사이트의 보안 키패드는 6자리를 다 누르는 순간 결제가 실행되므로,
+    # 입력이 끝난 뒤에 등록하면 결과 알림창을 놓친다.
     dialog_info = {"detected": False, "message": ""}
 
     def handle_dialog(dialog):
@@ -300,30 +172,48 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
     # 알림창(alert)은 페이지 레벨 이벤트이므로 메인 page에 등록 (popup이 iframe이어도 여기서 잡힘)
     page.on("dialog", handle_dialog)
 
-    # 결제 실행: 리뉴얼 사이트에서 doenterCharge()는 메인 window의 전역 함수다.
-    # popup이 iframe이면 그 컨텍스트엔 함수가 없어 "doenterCharge is not defined"가 나므로,
-    # 함수가 정의된 컨텍스트(메인 우선)를 찾아 호출한다.
-    charge_called = False
-    for _ctx, _name in ((page, "main"), (popup, "popup")):
-        if _ctx is None:
-            continue
-        try:
-            if _ctx.evaluate("typeof doenterCharge === 'function'"):
-                _ctx.evaluate("doenterCharge()")
-                logger.info(f"doenterCharge() 호출 성공 ({_name} 컨텍스트)")
-                charge_called = True
-                break
-        except Exception as e:
-            logger.debug(f"{_name} 컨텍스트에서 doenterCharge 호출 시도 실패: {e}")
-
-    if not charge_called:
-        logger.error("doenterCharge 함수를 어느 컨텍스트에서도 찾지 못했습니다.")
-        send_discord_message("❌ 충전 실패 — 결제 실행 함수(doenterCharge)를 찾을 수 없습니다 (사이트 결제 로직 변경 가능성).")
+    def _drop_dialog_listener():
         try:
             page.remove_listener("dialog", handle_dialog)
         except Exception:
             pass
-        return {"status": "failed", "message": "doenterCharge 없음"}
+
+    if dry_run:
+        # 주의: 비밀번호 6자리 입력이 곧 결제 실행이다.
+        # dry_run은 입력 자체를 하면 안 된다. (예전 코드는 입력까지 하고
+        # doenterCharge만 건너뛰었는데, 그러면 dry_run이 실제로 돈을 쓴다.)
+        logger.info("🛑 [Dry Run] 비밀번호 입력(=결제 실행) 직전에 중단합니다.")
+        _drop_dialog_listener()
+        return {"status": "dry_run", "message": "dry_run"}
+
+    # 비밀번호 입력 = 결제 실행
+    logger.info(f"비밀번호 입력 시작 (총 {len(payment_pw)}자리)")
+    try:
+        for i, char in enumerate(payment_pw):
+            if char in digit_map:
+                rx, ry = digit_map[char]
+                # 결제 PIN이 로그/대시보드에 남지 않도록 숫자도 좌표도 남기지 않는다.
+                # (숫자->좌표 맵은 위에서 debug로 남으므로, 좌표만 있어도 PIN이 역산된다.)
+                logger.info(f"[{i+1}/{len(payment_pw)}] 키패드 입력")
+                keypad_elem.click(position={'x': rx, 'y': ry})
+                time.sleep(1.0) # 입력 간 딜레이
+            else:
+                raise Exception(f"키패드에서 {i+1}번째 자리 숫자를 인식하지 못했습니다")
+    except Exception as e:
+        logger.error(f"비밀번호 입력 중 오류 발생: {e}")
+        send_discord_message(f"❌ 충전 실패 — 보안 키패드 비밀번호 입력 실패: {e}")
+        _drop_dialog_listener()
+        return {"status": "failed", "message": f"비밀번호 입력 실패: {e}"}
+
+    logger.info("비밀번호 입력 완료 — 결제가 실행되었다. 결과 알림을 기다립니다.")
+
+    # 예전 사이트는 입력 후 doenterCharge()를 따로 호출해야 했지만, 지금은
+    # 6자리 입력만으로 결제가 끝난다. (2026-09-11 확인: 입력이 끝난 시각에
+    # 케이뱅크에서 5,000원이 빠져나가고 예치금이 750 -> 5,750원이 되었는데,
+    # 그 직후 doenterCharge는 어느 컨텍스트에도 없었다.)
+    # 여기서 doenterCharge()를 호출하면 이중 결제 위험이 있으므로 부르지 않는다.
+    # 결제 여부는 아래 결과 알림과 호출부의 예치금 재조회로 판정한다.
+    time.sleep(1)
 
     # 결과 대기: 동행복권은 native alert 대신 커스텀 알림 팝업을 쓴다.
     #   구조: <div class="pop-up"> <.pop-head-tit>알림</> <메시지> <button id="btnAlertPop">확인</button> </div>
@@ -369,14 +259,12 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
         except Exception as e:
             logger.debug(f"DOM 텍스트 확인 중 오류(무시됨): {e}")
 
-    # 이벤트 리스너 제거 (안전장치) - page에 등록했으므로 page에서 제거
-    try:
-        page.remove_listener("dialog", handle_dialog)
-    except Exception:
-        pass
+    # 이벤트 리스너 제거 (안전장치)
+    _drop_dialog_listener()
 
     # 결과 판정 + Discord 피드백 + 반환값
-    from notification import send_discord_message
+    # (여기서 send_discord_message를 다시 import하면 함수 전체에서 지역변수가 되어
+    #  앞쪽 실패 경로의 알림이 전부 UnboundLocalError로 죽는다. 모듈 최상단 import를 쓴다.)
     if result_msg and ("부족" in result_msg or "잔액" in result_msg):
         logger.warning(f"충전 실패(잔액 부족): {result_msg}")
         send_discord_message(f"❌ 충전 실패 — 충전계좌(케이뱅크) 잔액 부족\n📩 사이트 알림: {result_msg}")

@@ -198,12 +198,17 @@ class BotManager:
                 pid = int(f.read().strip())
             
             process = psutil.Process(pid)
-            process.terminate()
-            
+            if process.status() != psutil.STATUS_ZOMBIE:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except psutil.TimeoutExpired:
+                    process.kill()
+
             # PID 파일 삭제
             if os.path.exists(self.pid_file):
                 os.remove(self.pid_file)
-                
+
             return True, "봇이 중지되었습니다."
         except psutil.NoSuchProcess:
             # 프로세스가 이미 없으면 파일만 삭제
@@ -216,17 +221,26 @@ class BotManager:
     def is_running(self):
         if not os.path.exists(self.pid_file):
             return False
-            
+
         try:
             with open(self.pid_file, 'r') as f:
                 pid = int(f.read().strip())
-            
-            if psutil.pid_exists(pid):
-                return True
-            else:
-                # 파일은 있는데 프로세스가 없으면 좀비 파일임
+
+            # psutil.pid_exists()만으로는 부족하다. 봇이 SIGSEGV 등으로 죽어도
+            # 부모가 wait()하기 전까지 좀비(defunct)로 PID가 남아 있어서
+            # 죽은 봇을 "실행 중"으로 보고하게 된다.
+            proc = psutil.Process(pid)
+            if proc.status() == psutil.STATUS_ZOMBIE:
                 return False
-        except:
+
+            # PID 재사용으로 엉뚱한 프로세스를 봇으로 오인하지 않도록 확인
+            if not any('main.py' in arg for arg in proc.cmdline()):
+                return False
+
+            return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, OSError):
+            return False
+        except Exception:
             return False
 
 bot_manager = BotManager()

@@ -143,7 +143,32 @@ def deposit_job():
 
         status = (result or {}).get("status", "unknown")
         logger.info(f"충전 작업 결과: {status} / 현재 예치금: {new_balance}원")
-        send_discord_message(f"📊 충전 작업 종료 (결과: {status}) — 현재 예치금 {new_balance:,}원")
+
+        # 사이트 알림창을 놓쳐도 예치금 변동으로 실제 충전 여부를 판정한다.
+        # (2026-09-11: 결제는 정상 처리됐는데 알림을 못 잡아 '실패'로 보고된 적이 있다.
+        #  돈이 오간 일이라 사이트 응답보다 잔액 변동을 1차 근거로 삼는다.)
+        if new_balance != -1 and balance != -1:
+            delta = new_balance - balance
+            if delta >= amount:
+                logger.success(f"충전 확인: 예치금 {balance:,} -> {new_balance:,}원 (+{delta:,})")
+                send_discord_message(
+                    f"✅ 충전 완료 — 예치금 {balance:,}원 → {new_balance:,}원 (+{delta:,}원)\n"
+                    f"📊 사이트 응답: {status}"
+                )
+            elif delta == 0:
+                logger.error(f"충전 실패: 예치금이 {new_balance:,}원 그대로입니다.")
+                send_discord_message(
+                    f"❌ 충전 실패 — 예치금이 {new_balance:,}원 그대로입니다.\n"
+                    f"📊 사이트 응답: {status}"
+                )
+            else:
+                logger.warning(f"충전 결과 확인 필요: {balance:,} -> {new_balance:,}원 (기대 +{amount:,})")
+                send_discord_message(
+                    f"⚠️ 충전 결과 확인 필요 — 예치금 {balance:,}원 → {new_balance:,}원 "
+                    f"(기대 +{amount:,}원)\n📊 사이트 응답: {status}"
+                )
+        else:
+            send_discord_message(f"📊 충전 작업 종료 (결과: {status}) — 현재 예치금 {new_balance:,}원")
 
     except Exception as e:
         logger.error(f"충전 작업 중 오류 발생: {e}")

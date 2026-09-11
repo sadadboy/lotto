@@ -1,6 +1,7 @@
 from playwright.sync_api import sync_playwright
 from loguru import logger
 import time
+import os
 
 def login(user_id, user_pw, headless=False):
     """
@@ -215,3 +216,33 @@ def close_browser(browser):
             browser._playwright.stop()
     except Exception as e:
         logger.warning(f"Playwright 종료 중 오류: {e}")
+
+    reap_children()
+
+
+def reap_children():
+    """종료된 자식 프로세스를 거둬들인다.
+
+    Playwright의 node 드라이버와 headless_shell은 종료돼도 부모가 wait()하지
+    않으면 좀비로 남는다. 스케줄러는 한 프로세스로 몇 주씩 떠 있어서 주마다
+    좀비가 쌓이고, 대시보드는 좀비 PID를 살아있는 봇으로 오인한다.
+
+    주의: waitpid(-1)은 아무 자식이나 거둬들이므로, subprocess.Popen으로 직접
+    관리하는 자식이 살아있는 동안에는 호출하면 안 된다. (Popen.wait()가 종료
+    상태를 잃는다.) 충전 작업의 OCR 워커는 close_browser보다 먼저 정리된다.
+    """
+    reaped = 0
+    while True:
+        try:
+            pid, _status = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            break  # 거둘 자식이 없음
+        except OSError as e:
+            logger.debug(f"자식 프로세스 수거 중 오류(무시): {e}")
+            break
+        if pid == 0:
+            break  # 아직 실행 중인 자식만 남음
+        reaped += 1
+
+    if reaped:
+        logger.debug(f"좀비 프로세스 {reaped}개 수거 완료")
