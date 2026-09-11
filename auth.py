@@ -87,9 +87,9 @@ def login(user_id, user_pw, headless=False):
         
         # [Step 1] 로그인 페이지 접속 직후 스크린샷
         try:
-            from notification import send_discord_file
+            from notification import send_debug_file
             page.screenshot(path="step1_login_page.png")
-            send_discord_file("step1_login_page.png", "📸 [Step 1] 로그인 페이지 접속")
+            send_debug_file("step1_login_page.png", "📸 [Step 1] 로그인 페이지 접속")
         except Exception as e:
             logger.warning(f"스텝 1 스크린샷 실패: {e}")
 
@@ -129,7 +129,6 @@ def login(user_id, user_pw, headless=False):
         page.locator('#inpUserPswdEncn').click()
         page.locator('#inpUserPswdEncn').press_sequentially(user_pw, delay=100)
         
-        logger.info("로그인 버튼 클릭...")
         logger.info("로그인 버튼 클릭...")
         # 로그인 버튼 클릭 (#btnLogin)
         page.click('#btnLogin')
@@ -172,7 +171,8 @@ def login(user_id, user_pw, headless=False):
         # [Step 2] 로그인 성공 직후 스크린샷
         try:
             page.screenshot(path="step2_login_success.png")
-            send_discord_file("step2_login_success.png", "📸 [Step 2] 로그인 성공 (메인 페이지 진입)")
+            from notification import send_debug_file
+            send_debug_file("step2_login_success.png", "📸 [Step 2] 로그인 성공 (메인 페이지 진입)")
         except Exception as e:
             logger.warning(f"스텝 2 스크린샷 실패: {e}")
 

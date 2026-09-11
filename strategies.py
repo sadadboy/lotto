@@ -69,51 +69,24 @@ def generate_numbers(mode, manual_numbers=None, analysis_range=50):
 def predict_ai_numbers():
     """
     학습된 LSTM 모델을 사용하여 번호를 예측합니다.
-    """
-    import numpy as np
-    from tensorflow.keras.models import load_model
-    import os
-    
-    model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lotto_model.h5")
-    if not os.path.exists(model_path):
-        _notify_fallback("AI 추천", "모델 파일(lotto_model.h5) 없음 — train_model.py로 학습 필요")
-        return get_random_numbers()
-    
-    logger.info("AI 모델 로드 중...")
-    model = load_model(model_path)
-    
-    # 최근 10회차 데이터 가져오기 (학습 시 window_size=10 사용 가정)
-    window_size = 10
-    recent_numbers = get_recent_draws(window_size)
-    
-    if len(recent_numbers) < window_size:
-        _notify_fallback(
-            "AI 추천",
-            f"최근 당첨번호가 부족함 ({len(recent_numbers)}/{window_size}회차)",
-        )
-        return get_random_numbers()
-        
-    # 전처리 (One-hot encoding)
-    def to_one_hot(nums):
-        one_hot = np.zeros(45)
-        for n in nums:
-            one_hot[int(n)-1] = 1
-        return one_hot
 
-    input_seq = np.array([to_one_hot(nums) for nums in recent_numbers])
-    input_seq = input_seq.reshape(1, window_size, 45) # (1, 10, 45)
-    
-    # 예측
-    prediction = model.predict(input_seq, verbose=0)[0] # (45,)
-    
-    # 확률이 높은 상위 6개 선택
-    # argsort는 오름차순이므로 뒤에서 6개 자르고 뒤집음
-    top_indices = prediction.argsort()[-6:][::-1]
-    
-    # 인덱스(0~44)를 번호(1~45)로 변환
-    # int()로 변환하지 않으면 numpy.int64가 그대로 남아 알림 메시지에 np.int64(5)로 찍힌다.
-    predicted_numbers = sorted(int(i) + 1 for i in top_indices)
-    
+    TensorFlow는 이 프로세스에 올리지 않고 ai_predict 워커에서만 돌린다.
+    스케줄러는 한 프로세스로 몇 주씩 떠 있어서, 여기에 TF를 상주시키면
+    나중에 PyTorch 계열(easyocr 등)을 올리는 순간 OpenMP 충돌로
+    프로세스가 SIGSEGV로 즉사한다. (2026-09-11 자동충전 사고)
+    """
+    import ai_predict
+
+    # 최근 10회차 데이터는 부모에서 조회해 넘긴다 (워커는 추론만 한다).
+    recent_numbers = get_recent_draws(ai_predict.WINDOW_SIZE)
+
+    logger.info("AI 모델 로드 중... (별도 프로세스)")
+    try:
+        predicted_numbers = ai_predict.predict(recent_numbers)
+    except ai_predict.AiPredictError as e:
+        _notify_fallback("AI 추천", str(e))
+        return get_random_numbers()
+
     logger.info(f"AI 예측 번호: {predicted_numbers}")
     return predicted_numbers
 

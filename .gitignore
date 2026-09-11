@@ -8,6 +8,7 @@ status.json
 bot.pid
 
 # Logs and Debugging
+logs/
 *.log
 *.pid
 *.png
@@ -26,6 +27,10 @@ venv/
 
 # Deployment
 *.zip
+releases/
+
+# 개발/디버그 산출물 (루트를 어지럽히지 않도록 dev/ 아래로 모음)
+dev/
 
 # IDE
 .vscode/

@@ -65,6 +65,31 @@ def send_discord_message(message, webhook_url=None, tag=None):
         logger.error(f"디스코드 알림 전송 중 오류 발생: {e}")
         return False
 
+def debug_screenshots_enabled():
+    """진행 단계 스크린샷을 디스코드로 보낼지 여부 (config.json의 system.debug_screenshots).
+
+    기본값은 False다. 로그인/구매 진행 화면은 문제 없을 때도 매 작업마다 올라와
+    채널을 채우고, 로그인한 계정 화면이 계속 쌓인다. 문제를 쫓을 때만 켠다.
+    (스크린샷 파일 자체는 항상 로컬에 저장되므로 서버에서 확인할 수 있다.)
+    """
+    try:
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            return bool(config.get('system', {}).get('debug_screenshots', False))
+    except Exception:
+        return False
+
+def send_debug_file(file_path, message=None, webhook_url=None, tag=None):
+    """진행 단계 스크린샷 전송. debug_screenshots가 켜져 있을 때만 실제로 보낸다.
+
+    오류 화면, 영수증, 당첨 결과처럼 항상 봐야 하는 이미지는 send_discord_file을 쓴다.
+    """
+    if not debug_screenshots_enabled():
+        logger.debug(f"진행 단계 스크린샷 전송 생략 (debug_screenshots=off): {file_path}")
+        return False
+    return send_discord_file(file_path, message=message, webhook_url=webhook_url, tag=tag)
+
 def send_discord_file(file_path, message=None, webhook_url=None, tag=None):
     """
     디스코드 웹훅으로 파일을 전송합니다.

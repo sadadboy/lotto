@@ -9,7 +9,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 app = Flask(__name__)
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config.json')
-BOT_LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'bot.log')
+# 봇과 같은 로그 파일을 본다. logs/는 볼륨 마운트라 컨테이너 재생성에도 살아남는다.
+BOT_LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+os.makedirs(BOT_LOG_DIR, exist_ok=True)
+BOT_LOG_PATH = os.path.join(BOT_LOG_DIR, 'bot.log')
 
 def dash_log(message):
     """대시보드 활동을 bot.log에 남겨 로그 뷰어에서 보이도록 한다.
@@ -296,7 +299,7 @@ def serve_image(filename):
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
-    log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'bot.log')
+    log_path = BOT_LOG_PATH
     if not os.path.exists(log_path):
         return jsonify({"logs": ["로그 파일이 없습니다."]})
     

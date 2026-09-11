@@ -33,27 +33,69 @@ def capture_recent_receipt(page: Page):
         # [당첨결과 파싱] 첫 구매 행의 '당첨결과' 셀에서 실제 결과를 읽는다.
         # 표 컬럼: 구입일자 | 복권명 | 회차 | 선택번호 | 구입매수 | 당첨결과 | 당첨금 | 추첨일자 ...
         # 낙첨/미추첨/미당첨/N등이 '당첨결과' 셀에 표시됨. (거짓 당첨 방지를 위해 실제 값을 사용)
+        def _classify(text):
+            """셀/행 텍스트에서 당첨 결과를 읽는다. 확실하지 않으면 None."""
+            if not text:
+                return None
+            if "낙첨" in text or "미당첨" in text:
+                return "낙첨"
+            mrank = re.search(r'([1-5])\s*등', text)
+            if mrank:
+                return f"{mrank.group(1)}등 당첨"
+            if "미추첨" in text or "추첨전" in text or "추첨중" in text or "추첨 중" in text:
+                return "미추첨"
+            return None
+
         win_result = None
         try:
-            row = page.locator('.whl-txt.barcd').first.locator('xpath=ancestor::tr[1]')
-            cells = row.locator('td')
-            cell_texts = []
-            for i in range(cells.count()):
-                try:
-                    cell_texts.append((cells.nth(i).inner_text() or '').strip())
-                except Exception:
-                    pass
-            logger.info(f"구매 행 셀: {' | '.join(cell_texts)}")
-            for ct in cell_texts:
-                mrank = re.search(r'([1-5])\s*등', ct)
-                if "낙첨" in ct or "미당첨" in ct:
-                    win_result = "낙첨"; break
-                elif mrank:
-                    win_result = f"{mrank.group(1)}등 당첨"; break
-                elif "미추첨" in ct or "추첨전" in ct or "추첨중" in ct or "추첨 중" in ct:
-                    win_result = "미추첨"; break
+            # 2026 리뉴얼로 구매내역이 표(table/tr/td)에서 리스트(li.whl-row/div.whl-col)로 바뀌었다.
+            # 예전 tr/td 셀렉터는 아무것도 못 찾아서 결과가 항상 '미확인'으로 떨어졌다.
+            # 구조가 또 바뀔 수 있으니 좁은 것부터 넓은 것 순으로 시도한다.
+            barcd = page.locator('.whl-txt.barcd').first
+            row = None
+            for xpath in ('xpath=ancestor::li[contains(@class,"whl-row")][1]', 'xpath=ancestor::tr[1]'):
+                candidate = barcd.locator(xpath)
+                if candidate.count() > 0:
+                    row = candidate
+                    break
+
+            if row is None:
+                logger.warning("구매 행 컨테이너를 찾지 못했습니다 (사이트 구조 변경 가능성).")
+            else:
+                # 1순위: 당첨결과 전용 칸
+                result_cell = row.locator('.col-result')
+                if result_cell.count() > 0:
+                    cell_text = (result_cell.first.inner_text() or '').strip()
+                    logger.info(f"당첨결과 칸: {cell_text!r}")
+                    win_result = _classify(cell_text)
+
+                # 2순위: 행의 모든 칸을 훑는다
+                if not win_result:
+                    cells = row.locator('.whl-col')
+                    if cells.count() == 0:
+                        cells = row.locator('td')
+                    cell_texts = []
+                    for i in range(cells.count()):
+                        try:
+                            cell_texts.append((cells.nth(i).inner_text() or '').strip())
+                        except Exception:
+                            pass
+                    logger.info(f"구매 행 셀: {' | '.join(cell_texts)}")
+                    for ct in cell_texts:
+                        win_result = _classify(ct)
+                        if win_result:
+                            break
+
+                # 3순위: 행 전체 텍스트 (칸 클래스명이 또 바뀌어도 결과는 읽히게)
+                if not win_result:
+                    row_text = (row.first.inner_text() or '').strip()
+                    logger.info(f"구매 행 전체 텍스트: {row_text!r}")
+                    win_result = _classify(row_text)
+
             if win_result:
                 status = win_result
+            else:
+                logger.warning("당첨결과를 읽지 못했습니다 — 영수증 팝업으로 보조 판정합니다.")
         except Exception as e:
             logger.warning(f"당첨결과 셀 파싱 실패(무시): {e}")
 

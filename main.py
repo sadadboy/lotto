@@ -9,7 +9,13 @@ from notification import send_discord_message, set_default_tag
 
 # 설정 파일 경로
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
-LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bot.log')
+# 로그는 logs/ 디렉토리에 둔다. 이 디렉토리를 볼륨으로 마운트하므로
+# 컨테이너를 다시 만들어도 과거 로그가 남는다. (사고 분석에 과거 로그가 제일 중요한데,
+# 예전에는 bot.log가 컨테이너 안에만 있어 배포할 때마다 통째로 사라졌다.)
+# 주의: 파일 단위가 아니라 디렉토리 단위로 마운트해야 loguru 로테이션(os.rename)이 동작한다.
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_PATH = os.path.join(LOG_DIR, 'bot.log')
 
 # 로그 파일 설정 (덮어쓰기 모드 X, 추가 모드 O, 매일 회전 등은 선택사항)
 # 여기서는 간단하게 파일로 남김
@@ -79,6 +85,11 @@ def buy_job():
             from auth import close_browser
             close_browser(browser)
             logger.info("브라우저 종료")
+
+        # 작업이 성공했든 실패했든 "언제 마지막으로 돌았는지"는 남긴다.
+        # (대시보드의 마지막 실행 표시. 봇이 조용히 죽었을 때 이 값이 멈춰 있으면 바로 드러난다.)
+        from status_manager import status_manager
+        status_manager.update_last_run()
 
 def deposit_job():
     set_default_tag("자동충전")
@@ -179,6 +190,11 @@ def deposit_job():
             close_browser(browser)
             logger.info("브라우저 종료")
 
+        # 작업이 성공했든 실패했든 "언제 마지막으로 돌았는지"는 남긴다.
+        # (대시보드의 마지막 실행 표시. 봇이 조용히 죽었을 때 이 값이 멈춰 있으면 바로 드러난다.)
+        from status_manager import status_manager
+        status_manager.update_last_run()
+
 def check_winning_job():
     set_default_tag("당첨확인")
     logger.info("⏰ 예약된 당첨 확인 작업을 시작합니다.")
@@ -211,6 +227,11 @@ def check_winning_job():
             from auth import close_browser
             close_browser(browser)
             logger.info("브라우저 종료")
+
+        # 작업이 성공했든 실패했든 "언제 마지막으로 돌았는지"는 남긴다.
+        # (대시보드의 마지막 실행 표시. 봇이 조용히 죽었을 때 이 값이 멈춰 있으면 바로 드러난다.)
+        from status_manager import status_manager
+        status_manager.update_last_run()
 
 from datetime import datetime
 

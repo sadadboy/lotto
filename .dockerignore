@@ -1,0 +1,12 @@
+# 이미지에 넣을 필요 없는 것들.
+# COPY . . 가 릴리스 zip(47M)과 디버그 산출물(4M)까지 퍼올리면
+# 이미지가 그만큼 커지고 빌드도 느려진다.
+.git/
+releases/
+dev/
+logs/
+__pycache__/
+*.pyc
+*.zip
+.venv/
+venv/

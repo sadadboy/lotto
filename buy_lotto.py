@@ -125,9 +125,9 @@ def _open_purchase_frame(page: Page, send_screenshot: bool = False):
     if send_screenshot:
         # [Step 3] 구매 페이지 이동 직후 스크린샷
         try:
-            from notification import send_discord_file
+            from notification import send_debug_file
             page.screenshot(path="step3_purchase_page.png")
-            send_discord_file("step3_purchase_page.png", "📸 [Step 3] 구매 페이지 이동")
+            send_debug_file("step3_purchase_page.png", "📸 [Step 3] 구매 페이지 이동")
         except Exception as e:
             logger.warning(f"스텝 3 스크린샷 실패: {e}")
 
@@ -395,9 +395,9 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
 
         # 구매 결과 스크린샷 전송
         try:
-            from notification import send_discord_file
+            from notification import send_debug_file
             if os.path.exists("after_buy_click.png"):
-                send_discord_file("after_buy_click.png", "📸 구매 직후 화면")
+                send_debug_file("after_buy_click.png", "📸 구매 직후 화면")
         except Exception as e:
             logger.warning(f"구매 결과 스크린샷 전송 실패: {e}")
 
