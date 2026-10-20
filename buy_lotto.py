@@ -447,6 +447,17 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
                 status_manager.update_latest_result("미확인 (구매 완료)")
                 logger.info("구매 상세 영수증 캡처 및 상태 업데이트 완료")
 
+                # 영수증은 실제로 샀다는 증거라 debug_screenshots와 무관하게 항상 보낸다.
+                # (캡처만 하고 전송 코드가 없어 구매 후 아무 이미지도 오지 않았음)
+                from notification import send_discord_file
+                send_discord_file(
+                    receipt_info['image_path'],
+                    f"🧾 구매 영수증 — {receipt_info.get('round_num')}회 / 발행 {receipt_info.get('buy_date')}"
+                    + (f" / 남은 예치금 {balance:,}원" if balance != -1 else ""),
+                )
+            else:
+                send_discord_message("⚠️ 구매 요청은 완료됐지만 영수증을 가져오지 못했습니다. 구매내역을 직접 확인해 주세요.")
+
         except Exception as e:
             logger.warning(f"구매 후 후처리(잔액/영수증) 실패: {e}")
 
