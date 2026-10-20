@@ -15,6 +15,14 @@ class BreakTimeBlocked(Exception):
     """동행복권 'Break time'(과몰입 예방) 안내창이 화면을 막고 있을 때 발생."""
 
 
+class PurchaseMaybeSubmitted(Exception):
+    """'구매하기' 버튼을 누른 뒤에 오류가 났다 — 구매가 이미 처리됐을 수 있다.
+
+    이 예외는 절대 자동 재시도하면 안 된다. (같은 회차를 두 번 사게 된다)
+    호출측은 사람이 구매내역을 확인하도록 알려야 한다.
+    """
+
+
 def prepare_games(games_config: list, max_games: int = MAX_GAMES_PER_PURCHASE):
     """구매할 게임 목록과 번호를 **브라우저를 열기 전에** 미리 확정한다.
 
@@ -257,6 +265,17 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
     logger.info("로또 구매 프로세스 시작...")
     send_discord_message("🎟️ 로또 구매 프로세스를 시작합니다.")
 
+    # '구매하기'를 눌렀는지. 누른 뒤의 오류는 재시도하면 이중 구매가 되므로 구분한다.
+    buy_clicked = False
+
+    # 지난 실패의 스크린샷이 남아 있으면 이번 실패 때 옛 화면이 함께 전송된다.
+    # (2026-10-16의 iframe_timeout.png가 계속 남아 있었음)
+    for stale in ("iframe_timeout.png", "buy_error.png"):
+        try:
+            os.remove(stale)
+        except FileNotFoundError:
+            pass
+
     try:
         # ── 1단계: 번호 확정 (브라우저 조작 없음) ────────────────────────────
         # 구매창을 띄우기 전에 끝내야 '게임 접속 시간'이 쌓이지 않는다.
@@ -358,6 +377,7 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
         # 구매하기 버튼 클릭
         logger.info("구매하기 버튼 클릭 시도...")
         iframe.locator('#btnBuy').click()
+        buy_clicked = True
 
         # HTML 레이어 팝업 처리 ("구매하시겠습니까?")
         try:
@@ -442,6 +462,10 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
         raise
 
     except Exception as e:
+        if buy_clicked:
+            logger.error(f"구매 버튼 클릭 후 오류 발생 — 구매가 처리됐을 수 있음: {e}")
+            raise PurchaseMaybeSubmitted(str(e)) from e
+
         logger.error(f"구매 프로세스 중 오류 발생: {e}")
         send_discord_message(f"❌ 구매 실패: {str(e)}")
 

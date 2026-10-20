@@ -3,6 +3,11 @@ from loguru import logger
 import time
 import os
 
+
+class LoginCredentialError(Exception):
+    """아이디/비밀번호 오류. 재시도하면 '비밀번호 5회 오류'로 계정이 잠기므로 재시도 금지."""
+
+
 def login(user_id, user_pw, headless=False):
     """
     동행복권 사이트에 로그인합니다.
@@ -51,6 +56,10 @@ def login(user_id, user_pw, headless=False):
             }
         )
         page = context.new_page()
+
+        # 실패 시 원인 분석용: 네트워크/콘솔 이상 이벤트 기록 (diagnostics.dump_failure가 사용)
+        from diagnostics import attach_page_monitor
+        attach_page_monitor(page)
         
         # JavaScript로 모바일 감지 완전 차단
         page.add_init_script("""
@@ -134,39 +143,54 @@ def login(user_id, user_pw, headless=False):
         page.click('#btnLogin')
 
         # 로그인 성공 여부 확인 (URL 변경 대기)
+        redirected = False
         try:
             # 60초 동안 메인 페이지(main) 또는 인덱스(index)로 이동하는지 확인
             page.wait_for_url(lambda u: 'main' in u or 'index' in u, timeout=60000)
+            redirected = True
             logger.info("로그인 성공! (메인 페이지 감지)")
         except:
-             logger.warning("메인 페이지로 자동 이동되지 않음 (수동 확인 필요)")
+             logger.warning(f"메인 페이지로 자동 이동되지 않음 (현재 URL: {page.url})")
              
         # [추가] 로그인 실패 팝업/메시지 감지
         if page.locator("text='아이디 또는 비밀번호가 일치하지 않습니다'").is_visible():
             logger.error("로그인 실패: 아이디 또는 비밀번호가 일치하지 않습니다.")
-            raise Exception("Login Failed: Invalid Credentials")
+            raise LoginCredentialError("Login Failed: Invalid Credentials")
         
         if page.locator("text='비밀번호 5회 오류'").is_visible():
             logger.error("로그인 실패: 비밀번호 5회 오류 제한.")
-            raise Exception("Login Failed: Password Retry Limit")
+            raise LoginCredentialError("Login Failed: Password Retry Limit")
         
         # 세션 안정화를 위해 충분히 대기 (클라우드 환경 대응)
         time.sleep(5)
         
+        # 로그아웃/마이페이지 버튼으로 로그인 성공 검증
+        logged_in_marker = False
         try:
-            # 로그아웃 버튼 찾기 (로그인 성공 검증) - 30초 대기
-            # "로그아웃" 또는 "마이페이지"가 보이면 성공으로 간주
+            page.wait_for_selector('text="로그아웃"', timeout=5000)
+            logged_in_marker = True
+            logger.info("로그인 확인 완료 (로그아웃 버튼 발견).")
+        except Exception:
             try:
-                page.wait_for_selector('text="로그아웃"', timeout=5000)
-                logger.info("로그인 확인 완료 (로그아웃 버튼 발견).")
-            except:
-                try:
-                    page.wait_for_selector('text="마이페이지"', timeout=5000)
-                    logger.info("로그인 확인 완료 (마이페이지 버튼 발견).")
-                except:
-                    logger.warning("로그아웃/마이페이지 버튼을 찾을 수 없으나, 메인 페이지 진입 성공으로 진행합니다.")
-        except Exception as e:
-            logger.warning(f"로그인 검증 단계에서 예외 발생 (무시하고 진행): {e}")
+                page.wait_for_selector('text="마이페이지"', timeout=5000)
+                logged_in_marker = True
+                logger.info("로그인 확인 완료 (마이페이지 버튼 발견).")
+            except Exception:
+                pass
+
+        if not logged_in_marker:
+            if not redirected:
+                # 메인으로 넘어가지도 않았고 로그인 표시도 없다 = 로그인이 안 된 것.
+                # 예전에는 여기서도 '성공'으로 진행해, 2026-10-16 구매가 빈 구매 페이지에서
+                # iframe을 2분간 기다리다 엉뚱한 오류(iframe 타임아웃)로 실패했다.
+                # 여기서 실패시켜야 원인이 '로그인'으로 정확히 기록되고 호출측 재시도가 동작한다.
+                raise Exception(
+                    f"로그인 확인 실패: 로그인 후 메인 페이지로 이동하지 않았고 로그아웃/마이페이지 버튼도 없음 "
+                    f"(URL: {page.url}, 사이트 응답 지연/장애 가능성)"
+                )
+            # 메인으로는 넘어갔으나 버튼만 못 찾은 경우 — 토요일 밤 등에 실제로 있었고
+            # 이후 작업이 정상 동작했으므로 진행한다.
+            logger.warning("로그아웃/마이페이지 버튼을 찾을 수 없으나, 메인 페이지 진입 성공으로 진행합니다.")
 
         # [Step 2] 로그인 성공 직후 스크린샷
         try:
@@ -193,6 +217,13 @@ def login(user_id, user_pw, headless=False):
 
     except Exception as e:
         logger.error(f"로그인 중 오류 발생: {e}")
+        # 브라우저를 닫기 전에 화면/네트워크 상태를 남긴다 (닫으면 원인 분석 불가)
+        if 'page' in locals():
+            try:
+                from diagnostics import dump_failure
+                dump_failure(page, 'login', e)
+            except Exception as ex:
+                logger.warning(f"로그인 실패 진단 자료 저장 실패: {ex}")
         if 'browser' in locals():
             browser.close()
         if 'playwright' in locals():

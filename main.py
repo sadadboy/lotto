@@ -3,8 +3,9 @@ import time
 import json
 import os
 from loguru import logger
-from auth import login
-from buy_lotto import buy_games, prepare_games
+from auth import login, LoginCredentialError
+from buy_lotto import buy_games, prepare_games, PurchaseMaybeSubmitted
+from diagnostics import dump_failure, StepTimer
 from notification import send_discord_message, set_default_tag
 
 # 설정 파일 경로
@@ -20,6 +21,10 @@ LOG_PATH = os.path.join(LOG_DIR, 'bot.log')
 # 로그 파일 설정 (덮어쓰기 모드 X, 추가 모드 O, 매일 회전 등은 선택사항)
 # 여기서는 간단하게 파일로 남김
 logger.add(LOG_PATH, rotation="1 MB", retention="10 days", encoding="utf-8")
+
+# 구매 재시도: 첫 시도 실패 후 최대 3회, 2분 간격
+BUY_MAX_RETRIES = 3
+BUY_RETRY_INTERVAL_SEC = 120
 
 def load_config():
     try:
@@ -60,36 +65,101 @@ def buy_job():
     # 사용자가 보는 화면이 아니므로 True 권장
     headless = True 
     
-    browser = None
+    # 번호를 먼저 확정한 뒤에 로그인한다.
+    # 당첨번호 조회/AI 모델 로드를 구매창을 띄운 채로 하면 '게임 접속 시간'이 쌓여
+    # 동행복권 Break time 안내창이 뜨고, 그때부터 모든 클릭이 막힌다.
+    # 재시도 때도 같은 번호로 사도록 루프 밖에서 한 번만 계산한다.
     try:
-        # 번호를 먼저 확정한 뒤에 로그인한다.
-        # 당첨번호 조회/AI 모델 로드를 구매창을 띄운 채로 하면 '게임 접속 시간'이 쌓여
-        # 동행복권 Break time 안내창이 뜨고, 그때부터 모든 클릭이 막힌다.
         prepared = prepare_games(games_config)
-        if not prepared:
-            logger.info("활성화된 게임이 없어 구매를 건너뜁니다.")
-            send_discord_message("ℹ️ 활성화된 게임이 없어 구매를 건너뜁니다.")
-            return
-
-        # 로그인
-        browser, page = login(user_id, user_pw, headless=headless)
-        
-        # 구매 진행
-        buy_games(page, games_config, dry_run=False, prepared_games=prepared) # 실제 구매!
-        
     except Exception as e:
-        logger.error(f"구매 작업 중 오류 발생: {e}")
-        send_discord_message(f"❌ 구매 작업 중 오류 발생: {e}")
-    finally:
-        if browser:
-            from auth import close_browser
-            close_browser(browser)
-            logger.info("브라우저 종료")
-
-        # 작업이 성공했든 실패했든 "언제 마지막으로 돌았는지"는 남긴다.
-        # (대시보드의 마지막 실행 표시. 봇이 조용히 죽었을 때 이 값이 멈춰 있으면 바로 드러난다.)
+        logger.exception(f"번호 생성 중 오류 발생: {e}")
+        send_discord_message(f"❌ 번호 생성 중 오류 발생: {e}")
         from status_manager import status_manager
         status_manager.update_last_run()
+        return
+    if not prepared:
+        logger.info("활성화된 게임이 없어 구매를 건너뜁니다.")
+        send_discord_message("ℹ️ 활성화된 게임이 없어 구매를 건너뜁니다.")
+        from status_manager import status_manager
+        status_manager.update_last_run()
+        return
+
+    # 2026-10-16: 사이트가 일시적으로 응답하지 않아(빈 화면) 그 주 구매를 통째로 놓쳤다.
+    # 사이트 장애는 대개 몇 분이면 풀리므로 브라우저를 새로 띄워 재시도한다.
+    # 단, '구매하기'를 누른 뒤의 실패(PurchaseMaybeSubmitted)는 이중 구매 위험 때문에 재시도하지 않는다.
+    total_attempts = 1 + BUY_MAX_RETRIES
+    failures = []  # (시도, 오류, 진단폴더)
+    for attempt in range(1, total_attempts + 1):
+        browser = None
+        page = None
+        timer = StepTimer()
+        try:
+            logger.info(f"🛒 구매 시도 {attempt}/{total_attempts}")
+            browser, page = login(user_id, user_pw, headless=headless)
+            timer.mark("로그인")
+
+            buy_games(page, games_config, dry_run=False, prepared_games=prepared) # 실제 구매!
+            timer.mark("구매")
+
+            logger.info(f"구매 시도 {attempt}/{total_attempts} 성공 ({timer.summary()})")
+            if attempt > 1:
+                send_discord_message(f"✅ 재시도 {attempt - 1}회 만에 구매 성공")
+            break
+
+        except PurchaseMaybeSubmitted as e:
+            timer.mark("실패")
+            diag = dump_failure(page, f'buy_after_click_try{attempt}', e)
+            logger.error(f"구매 버튼 클릭 후 오류 — 재시도하지 않음 ({timer.summary()}): {e}")
+            send_discord_message(
+                "⚠️ '구매하기' 버튼을 누른 뒤 오류가 났습니다. 구매가 이미 처리됐을 수 있어 "
+                "이중 구매를 막기 위해 재시도하지 않습니다.\n"
+                f"동행복권 구매내역을 직접 확인해 주세요.\n오류: {e}\n진단 자료: {diag}"
+            )
+            break
+
+        except LoginCredentialError as e:
+            logger.error(f"로그인 정보 오류 — 계정 잠금 방지를 위해 재시도하지 않음: {e}")
+            send_discord_message(f"❌ 로그인 정보 오류로 구매 중단 (재시도 안 함 — 계정 잠금 방지): {e}")
+            break
+
+        except Exception as e:
+            timer.mark("실패")
+            # 로그인 단계 실패는 login() 안에서 이미 진단 자료를 남기고 브라우저를 닫았다(page=None).
+            diag = dump_failure(page, f'buy_try{attempt}', e) if page is not None else None
+            failures.append((attempt, e, diag))
+            logger.error(f"구매 시도 {attempt}/{total_attempts} 실패 ({timer.summary()}): {e}")
+
+            if attempt < total_attempts:
+                send_discord_message(
+                    f"🔁 구매 시도 {attempt}/{total_attempts} 실패 — {BUY_RETRY_INTERVAL_SEC // 60}분 후 재시도합니다.\n"
+                    f"오류: {_short(e)}"
+                )
+            else:
+                summary = "\n".join(f"- {n}차: {_short(err)}" for n, err, _ in failures)
+                logger.error(f"❌ 구매 최종 실패 ({total_attempts}회 시도). 진단 자료: logs/failures/ (로그인 단계 실패는 *_login 폴더)")
+                send_discord_message(
+                    f"❌ 구매 최종 실패 ({total_attempts}회 모두 실패). 직접 구매가 필요합니다.\n{summary}\n"
+                    "진단 자료: logs/failures/"
+                )
+        finally:
+            if browser:
+                from auth import close_browser
+                close_browser(browser)
+                logger.info("브라우저 종료")
+
+        if attempt < total_attempts:
+            time.sleep(BUY_RETRY_INTERVAL_SEC)
+
+    # 작업이 성공했든 실패했든 "언제 마지막으로 돌았는지"는 남긴다.
+    # (대시보드의 마지막 실행 표시. 봇이 조용히 죽었을 때 이 값이 멈춰 있으면 바로 드러난다.)
+    from status_manager import status_manager
+    status_manager.update_last_run()
+
+
+def _short(e, limit=200):
+    """디스코드용 한 줄 요약 (Playwright 오류는 Call log까지 여러 줄이라 첫 줄만)."""
+    first = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
+    return first[:limit]
 
 def deposit_job():
     set_default_tag("자동충전")
