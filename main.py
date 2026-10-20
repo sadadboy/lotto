@@ -7,6 +7,7 @@ from auth import login, LoginCredentialError
 from buy_lotto import buy_games, prepare_games, PurchaseMaybeSubmitted
 from diagnostics import dump_failure, StepTimer
 from notification import send_discord_message, set_default_tag
+import ledger
 
 # 설정 파일 경로
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
@@ -25,6 +26,10 @@ logger.add(LOG_PATH, rotation="1 MB", retention="10 days", encoding="utf-8")
 # 구매 재시도: 첫 시도 실패 후 최대 3회, 2분 간격
 BUY_MAX_RETRIES = 3
 BUY_RETRY_INTERVAL_SEC = 120
+
+GAME_PRICE = 1000
+# 스케줄러 루프가 살아 있다는 표시. 대시보드 감시가 이 값이 오래 멈추면 알린다.
+HEARTBEAT_INTERVAL_SEC = 60
 
 def load_config():
     try:
@@ -45,6 +50,22 @@ def buy_job():
     
     config = load_config()
     if not config:
+        ledger.record_purchase('failed', note="설정 로드 실패")
+        return
+
+    # 일시정지/건너뛰기도 기록을 남긴다. 감시(watchdog)는 "예약 시각 이후 구매 작업 기록이
+    # 있는지"로 봇이 작업을 놓쳤는지 판단하므로, 기록이 없으면 놓친 것으로 오인한다.
+    if ledger.load().get('paused'):
+        logger.info("자동 실행이 일시정지 상태라 구매를 건너뜁니다.")
+        send_discord_message("⏸️ 자동 실행 일시정지 중이라 이번 구매를 건너뜁니다. (재개: `!재개`)")
+        ledger.record_purchase('paused')
+        _mark_last_run()
+        return
+    if ledger.consume_skip_next_buy():
+        logger.info("이번 구매 건너뛰기가 예약돼 있어 건너뜁니다.")
+        send_discord_message("⏭️ 예약된 '이번 구매 건너뛰기'에 따라 이번 구매를 건너뜁니다. 다음 주부터 다시 구매합니다.")
+        ledger.record_purchase('skipped')
+        _mark_last_run()
         return
 
     security_manager = SecurityManager()
@@ -52,10 +73,11 @@ def buy_job():
     # Decrypt password
     encrypted_pw = config['account']['user_pw']
     user_pw = security_manager.decrypt(encrypted_pw)
-    
+
     if not user_pw:
         logger.error("비밀번호 복호화 실패 또는 비어있음")
         send_discord_message("❌ 비밀번호 복호화 실패")
+        ledger.record_purchase('failed', note="비밀번호 복호화 실패")
         return
 
     games_config = config['games']
@@ -74,14 +96,27 @@ def buy_job():
     except Exception as e:
         logger.exception(f"번호 생성 중 오류 발생: {e}")
         send_discord_message(f"❌ 번호 생성 중 오류 발생: {e}")
-        from status_manager import status_manager
-        status_manager.update_last_run()
+        ledger.record_purchase('failed', note=f"번호 생성 오류: {_short(e)}")
+        _mark_last_run()
         return
     if not prepared:
         logger.info("활성화된 게임이 없어 구매를 건너뜁니다.")
         send_discord_message("ℹ️ 활성화된 게임이 없어 구매를 건너뜁니다.")
-        from status_manager import status_manager
-        status_manager.update_last_run()
+        ledger.record_purchase('skipped', note="활성 게임 없음")
+        _mark_last_run()
+        return
+
+    # 지출 한도: 버그나 사이트 변화로 같은 주에 두 번 사게 되는 일을 마지막으로 막는 장치.
+    cost = len(prepared) * GAME_PRICE
+    allowed, reason = ledger.check_limit('buy', cost, config)
+    if not allowed:
+        logger.error(f"지출 한도로 구매 차단: {reason}")
+        send_discord_message(
+            f"🛑 지출 한도에 걸려 구매하지 않았습니다.\n{reason}\n"
+            "의도한 구매라면 대시보드에서 한도를 올려 주세요. (`!한도`로 현황 확인)"
+        )
+        ledger.record_purchase('blocked', games=len(prepared), note=reason)
+        _mark_last_run()
         return
 
     # 2026-10-16: 사이트가 일시적으로 응답하지 않아(빈 화면) 그 주 구매를 통째로 놓쳤다.
@@ -102,12 +137,15 @@ def buy_job():
             timer.mark("구매")
 
             logger.info(f"구매 시도 {attempt}/{total_attempts} 성공 ({timer.summary()})")
+            ledger.record_purchase('ok', games=len(prepared), amount=cost)
             if attempt > 1:
                 send_discord_message(f"✅ 재시도 {attempt - 1}회 만에 구매 성공")
             break
 
         except PurchaseMaybeSubmitted as e:
             timer.mark("실패")
+            # 돈이 나갔을 수 있으므로 한도 계산에 넣는다 (uncertain).
+            ledger.record_purchase('uncertain', games=len(prepared), amount=cost, note=_short(e))
             diag = dump_failure(page, f'buy_after_click_try{attempt}', e)
             logger.error(f"구매 버튼 클릭 후 오류 — 재시도하지 않음 ({timer.summary()}): {e}")
             send_discord_message(
@@ -120,6 +158,7 @@ def buy_job():
         except LoginCredentialError as e:
             logger.error(f"로그인 정보 오류 — 계정 잠금 방지를 위해 재시도하지 않음: {e}")
             send_discord_message(f"❌ 로그인 정보 오류로 구매 중단 (재시도 안 함 — 계정 잠금 방지): {e}")
+            ledger.record_purchase('failed', note=f"로그인 정보 오류: {_short(e)}")
             break
 
         except Exception as e:
@@ -141,6 +180,7 @@ def buy_job():
                     f"❌ 구매 최종 실패 ({total_attempts}회 모두 실패). 직접 구매가 필요합니다.\n{summary}\n"
                     "진단 자료: logs/failures/"
                 )
+                ledger.record_purchase('failed', note=f"{total_attempts}회 모두 실패")
         finally:
             if browser:
                 from auth import close_browser
@@ -152,6 +192,10 @@ def buy_job():
 
     # 작업이 성공했든 실패했든 "언제 마지막으로 돌았는지"는 남긴다.
     # (대시보드의 마지막 실행 표시. 봇이 조용히 죽었을 때 이 값이 멈춰 있으면 바로 드러난다.)
+    _mark_last_run()
+
+
+def _mark_last_run():
     from status_manager import status_manager
     status_manager.update_last_run()
 
@@ -168,6 +212,12 @@ def deposit_job():
 
     config = load_config()
     if not config:
+        return
+
+    if ledger.load().get('paused'):
+        logger.info("자동 실행이 일시정지 상태라 충전을 건너뜁니다.")
+        send_discord_message("⏸️ 자동 실행 일시정지 중이라 이번 충전을 건너뜁니다. (재개: `!재개`)")
+        _mark_last_run()
         return
 
     security_manager = SecurityManager()
@@ -210,11 +260,26 @@ def deposit_job():
             send_discord_message(msg)
             return
 
+        allowed, reason = ledger.check_limit('deposit', amount, config)
+        if not allowed:
+            logger.error(f"지출 한도로 충전 차단: {reason}")
+            send_discord_message(
+                f"🛑 지출 한도에 걸려 충전하지 않았습니다.\n{reason}\n"
+                "의도한 충전이라면 대시보드에서 한도를 올려 주세요. (`!한도`로 현황 확인)"
+            )
+            ledger.record_deposit('blocked', note=reason)
+            return
+
         send_discord_message(f"💰 예치금 {balance:,}원 < 기준 {threshold:,}원 → {amount:,}원 충전을 시작합니다.")
 
         from deposit import request_deposit
         # request_deposit이 성공/잔액부족/실패를 감지해 Discord로 상세 알림을 보내고 결과를 반환함
-        result = request_deposit(page, amount=amount, payment_pw=pay_pw, dry_run=False)
+        try:
+            result = request_deposit(page, amount=amount, payment_pw=pay_pw, dry_run=False)
+        except Exception:
+            # 결제 도중의 예외는 돈이 나갔는지 알 수 없으므로 한도 계산에 넣는다.
+            ledger.record_deposit('uncertain', amount=amount, note="충전 중 예외")
+            raise
 
         # 충전 후 예치금 갱신
         new_balance = lotto.get_reliable_balance(page)
@@ -231,24 +296,32 @@ def deposit_job():
         if new_balance != -1 and balance != -1:
             delta = new_balance - balance
             if delta >= amount:
+                ledger.record_deposit('ok', amount=amount)
                 logger.success(f"충전 확인: 예치금 {balance:,} -> {new_balance:,}원 (+{delta:,})")
                 send_discord_message(
                     f"✅ 충전 완료 — 예치금 {balance:,}원 → {new_balance:,}원 (+{delta:,}원)\n"
                     f"📊 사이트 응답: {status}"
                 )
             elif delta == 0:
+                ledger.record_deposit('failed', note=f"사이트 응답: {status}")
                 logger.error(f"충전 실패: 예치금이 {new_balance:,}원 그대로입니다.")
                 send_discord_message(
                     f"❌ 충전 실패 — 예치금이 {new_balance:,}원 그대로입니다.\n"
                     f"📊 사이트 응답: {status}"
                 )
             else:
+                ledger.record_deposit('uncertain', amount=amount, note=f"{balance:,} -> {new_balance:,}원")
                 logger.warning(f"충전 결과 확인 필요: {balance:,} -> {new_balance:,}원 (기대 +{amount:,})")
                 send_discord_message(
                     f"⚠️ 충전 결과 확인 필요 — 예치금 {balance:,}원 → {new_balance:,}원 "
                     f"(기대 +{amount:,}원)\n📊 사이트 응답: {status}"
                 )
         else:
+            # 잔액을 못 읽어 판정 불가 — 성공 응답이거나 결과 불명이면 돈이 나간 것으로 본다.
+            if status in ('success', 'unknown'):
+                ledger.record_deposit('uncertain', amount=amount, note=f"잔액 조회 실패, 사이트 응답: {status}")
+            else:
+                ledger.record_deposit('failed', note=f"사이트 응답: {status}")
             send_discord_message(f"📊 충전 작업 종료 (결과: {status}) — 현재 예치금 {new_balance:,}원")
 
     except Exception as e:
@@ -399,6 +472,17 @@ def run_scheduler():
     for job in schedule.get_jobs():
         logger.info(f"   - {job} (다음 실행: {job.next_run})")
 
+    # 디스코드 명령(!도움말 등). 봇 토큰이 설정돼 있을 때만 동작하며,
+    # 별도 스레드라 구매처럼 오래 걸리는 작업 중에도 응답한다.
+    try:
+        import discord_commands
+        discord_commands.start_in_background()
+    except Exception as e:
+        logger.warning(f"디스코드 명령 기능 시작 실패(무시): {e}")
+
+    from status_manager import status_manager
+    status_manager.save_status({"heartbeat": datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+
     logger.info("🚀 스케줄러 루프 진입")
 
     # config.json 변경 감지를 위한 mtime 추적
@@ -435,9 +519,13 @@ def run_scheduler():
             except Exception as e:
                 logger.warning(f"스케줄 리로드 확인 중 오류: {e}")
 
-        # 1분마다 하트비트 로그
-        if current_time - last_heartbeat > 60:
-            logger.debug(f"💓 Scheduler Heartbeat - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        # 1분마다 하트비트 (로그 + status.json). 작업 실행 중에는 이 루프가 멈추므로
+        # 대시보드 감시는 작업 시간보다 넉넉한 기준으로 '멈춤'을 판단한다.
+        if current_time - last_heartbeat > HEARTBEAT_INTERVAL_SEC:
+            now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            logger.debug(f"💓 Scheduler Heartbeat - {now_str}")
+            from status_manager import status_manager
+            status_manager.save_status({"heartbeat": now_str})
             last_heartbeat = current_time
 
         time.sleep(1)

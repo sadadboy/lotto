@@ -24,6 +24,7 @@
                     </li>
                     <li><a href="#section-account"><i class="fas fa-user-cog"></i> Account</a></li>
                     <li><a href="#section-purchase"><i class="fas fa-shopping-cart"></i> Purchase</a></li>
+                    <li><a href="#section-limits"><i class="fas fa-shield-alt"></i> Limits</a></li>
                     <li><a href="#section-schedule"><i class="fas fa-calendar-alt"></i> Schedule</a></li>
                     <li><a href="#section-system"><i class="fas fa-cog"></i> System</a></li>
                     <li><a href="#section-logs"><i class="fas fa-history"></i> Logs</a></li>
@@ -40,6 +41,9 @@
                 <h1>Dashboard</h1>
                 <div class="user-info">
                     <span>Admin</span>
+                    <form method="post" action="/logout" style="display:inline; margin-left: 10px;">
+                        <button type="submit" class="btn btn-secondary" title="이 기기에서 로그아웃">로그아웃</button>
+                    </form>
                 </div>
             </header>
 
@@ -57,7 +61,7 @@
         </main>
     </div>
 
-    <script src="{{ url_for('static', filename='js/main.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v=3"></script>
 </body>
 
 </html>

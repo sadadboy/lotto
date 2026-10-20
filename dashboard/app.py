@@ -26,8 +26,11 @@ def dash_log(message):
         pass
 
 from security import SecurityManager
+import ledger
+import access
 
 security_manager = SecurityManager()
+access.init_app(app, dash_log)
 
 def load_config():
     default_config = {
@@ -95,8 +98,30 @@ def save_config(config):
             elif pay_pw:
                 config['account']['pay_pw'] = security_manager.encrypt(pay_pw) # Encrypt new
                 
+        system = config.get('system')
+        if isinstance(system, dict):
+            # 봇 토큰도 비밀번호처럼 암호화 저장하고, 비워서 보내면 기존 값을 유지한다.
+            token = (system.pop('discord_bot_token', '') or '').strip()
+            if token:
+                system['discord_bot_token'] = security_manager.encrypt(token)
+            users = system.get('discord_allowed_users')
+            if isinstance(users, str):
+                system['discord_allowed_users'] = [u.strip() for u in users.replace('\n', ',').split(',') if u.strip()]
+            # 대시보드 비밀번호는 access.py로만 바꾼다. has_*는 화면 표시용 값이다.
+            system.pop('dashboard_password_hash', None)
+            system.pop('has_discord_bot_token', None)
+
+        # 화면은 자기가 아는 항목만 보내므로, 받은 값을 기존 설정 위에 섹션 단위로 덮어쓴다.
+        # (통째로 저장하면 debug_screenshots, 대시보드 비밀번호 등 화면에 없는 설정이 지워졌다.)
+        merged = load_config()
+        for key, value in config.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key].update(value)
+            else:
+                merged[key] = value
+
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
+            json.dump(merged, f, indent=4, ensure_ascii=False)
         print("[DEBUG] Config saved successfully.")
     except Exception as e:
         print(f"[DEBUG] Config save error: {e}")
@@ -146,6 +171,10 @@ def handle_config():
             # If user leaves it empty and saves, we preserve the old value (logic in save_config).
             config['account']['user_pw'] = "" 
             config['account']['pay_pw'] = ""
+        system = config.setdefault('system', {})
+        system.pop('dashboard_password_hash', None)
+        system['has_discord_bot_token'] = bool(system.pop('discord_bot_token', ''))
+        config['limits'] = ledger.get_limits(config)
         return jsonify(config)
     elif request.method == 'POST':
         new_config = request.json
@@ -284,16 +313,46 @@ def get_status():
         last_run = "N/A"
         latest_result = "미확인"
 
+    try:
+        control = ledger.load()
+        usage = {k: {"used": u, "limit": l} for k, (u, l) in ledger.usage(load_config()).items()}
+    except Exception as e:
+        print(f"[DEBUG] Ledger load error: {e}")
+        control, usage = {}, {}
+
     return jsonify({
         "status": status,
         "balance": balance,
         "last_run": last_run,
-        "latest_result": latest_result
+        "latest_result": latest_result,
+        "paused": bool(control.get('paused')),
+        "skip_next_buy": bool(control.get('skip_next_buy')),
+        "usage": usage,
     })
+
+@app.route('/api/control', methods=['POST'])
+def control():
+    """일시정지/재개, 다음 구매 건너뛰기 (디스코드 !일시정지 등과 같은 기능)"""
+    action = (request.json or {}).get('action')
+    actions = {
+        'pause': (lambda: ledger.set_paused(True), "자동 구매·충전을 일시정지했습니다. (당첨확인은 계속)"),
+        'resume': (lambda: ledger.set_paused(False), "자동 실행을 재개했습니다."),
+        'skip': (lambda: ledger.set_skip_next_buy(True), "다음 예약 구매 한 번을 건너뜁니다."),
+        'unskip': (lambda: ledger.set_skip_next_buy(False), "건너뛰기 예약을 취소했습니다."),
+    }
+    if action not in actions:
+        return jsonify({"status": "error", "message": "알 수 없는 동작입니다."}), 400
+    fn, message = actions[action]
+    fn()
+    dash_log(f"🎛️ 제어: {message}")
+    return jsonify({"status": "success", "message": message})
 
 @app.route('/api/images/<filename>')
 def serve_image(filename):
-    # 루트 디렉토리의 이미지 파일 서빙
+    # 루트 디렉토리의 이미지 파일 서빙.
+    # 루트에는 config.json, secret.key도 있으므로 이미지 확장자만 허용한다.
+    if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+        return jsonify({"status": "error", "message": "not found"}), 404
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return send_from_directory(root_dir, filename)
 
@@ -352,6 +411,11 @@ def test_deposit():
         if not user_id or not encrypted_user_pw or not encrypted_pay_pw:
              return jsonify({"status": "error", "message": "아이디, 비밀번호, 결제비밀번호가 모두 설정되어야 합니다."})
 
+        # 충전 테스트도 실제 결제이므로 지출 한도를 적용하고 기록한다.
+        allowed, reason = ledger.check_limit('deposit', 5000, config)
+        if not allowed:
+            return jsonify({"status": "error", "message": f"지출 한도 초과로 충전 테스트를 막았습니다. {reason}"})
+
         # Decrypt
         user_pw = security_manager.decrypt(encrypted_user_pw)
         pay_pw = security_manager.decrypt(encrypted_pay_pw)
@@ -372,9 +436,13 @@ def test_deposit():
         
         try:
             # Test with 5000 won
-            request_deposit(page, amount=5000, payment_pw=pay_pw)
+            result = request_deposit(page, amount=5000, payment_pw=pay_pw)
+            status = (result or {}).get('status', 'unknown')
+            ledger.record_deposit('ok' if status == 'success' else 'uncertain' if status == 'unknown' else 'failed',
+                                  amount=5000 if status in ('success', 'unknown') else 0, note=f"충전 테스트 ({status})")
             message = "충전 테스트 성공! (실제 충전이 되었을 수 있습니다. 잔액을 확인하세요.)"
         except Exception as e:
+            ledger.record_deposit('uncertain', amount=5000, note=f"충전 테스트 중 예외: {str(e)[:100]}")
             message = f"충전 테스트 실패: {str(e)}"
             raise e
         finally:
@@ -400,8 +468,17 @@ if __name__ == '__main__':
             dash_log(f"⚠️ [AUTOSTART] 봇 자동 시작 실패: {e}")
     else:
         dash_log("ℹ️ AUTOSTART=false (봇 자동 시작 안 함)")
+        # 이전 실행의 bot.pid가 남아 있으면 감시가 '봇이 죽었다'고 보고 재시작해 버린다.
+        if not bot_manager.is_running() and os.path.exists(bot_manager.pid_file):
+            os.remove(bot_manager.pid_file)
+
+    # 봇이 죽거나 멈추거나 예약 구매를 놓치면 디스코드로 알린다 (봇과 별개 프로세스라 봇 사망도 감지).
+    import bot_watchdog
+    bot_watchdog.start_in_background(bot_manager, dash_log, BOT_LOG_PATH)
 
     # use_reloader=False is required when running Playwright in the same process
     # to prevent the server from restarting and killing the browser.
+
     port = int(os.getenv('PORT', '5000'))
-    app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False)
+    # debug=True는 Werkzeug 디버거를 노출한다 (오류 페이지에서 서버 코드 실행 가능). 인터넷에 열린 포트라 절대 켜지 않는다.
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)

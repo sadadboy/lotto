@@ -51,6 +51,14 @@
                 <button id="btn-stop" class="btn btn-danger">Stop</button>
             </div>
         </div>
+        <div class="card status-card">
+            <h3>🎛️ 자동 실행</h3>
+            <p class="value" id="control-state" style="font-size: 1.1em;">-</p>
+            <div class="controls">
+                <button id="btn-pause" class="btn btn-secondary">일시정지</button>
+                <button id="btn-skip" class="btn btn-secondary">다음 구매 건너뛰기</button>
+            </div>
+        </div>
     </div>
 
     <div class="settings-grid">
@@ -116,6 +124,37 @@
                 </div>
                 <div class="form-actions">
                     <button type="button" id="btn-test-deposit" class="btn btn-secondary">충전 테스트 (OCR)</button>
+                    <button type="submit" class="btn btn-primary">저장</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Spending Limits -->
+        <div class="card settings-card" id="section-limits">
+            <div class="card-header">
+                <h3>🛑 지출 한도</h3>
+            </div>
+            <p style="color: #94a3b8; font-size: 0.85em; margin-bottom: 12px;">
+                한도를 넘는 구매·충전은 실행하지 않고 디스코드로 알립니다. 주는 일~토, 0이면 무제한.
+            </p>
+            <form id="limits-form">
+                <div class="form-group">
+                    <label>주간 구매 한도 <span class="limit-usage" id="usage_weekly_buy"></span></label>
+                    <input type="number" id="limit_weekly_buy" min="0" step="1000">
+                </div>
+                <div class="form-group">
+                    <label>월간 구매 한도 <span class="limit-usage" id="usage_monthly_buy"></span></label>
+                    <input type="number" id="limit_monthly_buy" min="0" step="1000">
+                </div>
+                <div class="form-group">
+                    <label>주간 충전 한도 <span class="limit-usage" id="usage_weekly_deposit"></span></label>
+                    <input type="number" id="limit_weekly_deposit" min="0" step="5000">
+                </div>
+                <div class="form-group">
+                    <label>월간 충전 한도 <span class="limit-usage" id="usage_monthly_deposit"></span></label>
+                    <input type="number" id="limit_monthly_deposit" min="0" step="5000">
+                </div>
+                <div class="form-actions">
                     <button type="submit" class="btn btn-primary">저장</button>
                 </div>
             </form>
@@ -188,6 +227,22 @@
                     <label>Discord Webhook URL</label>
                     <input type="text" id="discord_webhook" name="discord_webhook"
                         placeholder="https://discord.com/api/webhooks/...">
+                </div>
+                <p style="color: #94a3b8; font-size: 0.85em; margin: 16px 0 10px;">
+                    💬 디스코드 명령(<code>!도움말</code>, <code>!상태</code>, <code>!일시정지</code> 등)을 쓰려면 봇을 연결하세요.
+                    설정 방법은 README의 '디스코드 명령' 항목에 있습니다. 저장 후 1분 안에 적용됩니다.
+                </p>
+                <div class="form-group">
+                    <label>Discord 봇 토큰</label>
+                    <input type="password" id="discord_bot_token" autocomplete="off" placeholder="봇 토큰">
+                </div>
+                <div class="form-group">
+                    <label>명령 채널 ID</label>
+                    <input type="text" id="discord_channel_id" placeholder="예: 123456789012345678">
+                </div>
+                <div class="form-group">
+                    <label>명령 허용 사용자 ID (쉼표로 구분, 비우면 채널의 누구나)</label>
+                    <input type="text" id="discord_allowed_users" placeholder="예: 123456789012345678">
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">저장</button>

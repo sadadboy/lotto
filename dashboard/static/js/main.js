@@ -1,3 +1,30 @@
+// 로그인이 풀리면(비밀번호 변경 등) API가 401을 돌려준다 → 로그인 화면으로 보낸다.
+const _fetch = window.fetch.bind(window);
+window.fetch = function (...args) {
+    return _fetch(...args).then(response => {
+        if (response.status === 401) {
+            window.location.href = '/login';
+        }
+        return response;
+    });
+};
+
+let controlState = { paused: false, skip_next_buy: false };
+
+function sendControl(action) {
+    fetch('/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action })
+    })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            updateStatus();
+        })
+        .catch(error => console.error('Error sending control:', error));
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     loadConfig();
     updateStatus();
@@ -24,6 +51,22 @@ document.addEventListener('DOMContentLoaded', function () {
     document.querySelector('#deposit-form button[type="submit"]').addEventListener('click', function (e) {
         e.preventDefault();
         saveConfig('deposit');
+    });
+
+    // 지출 한도 저장
+    document.querySelector('#limits-form button[type="submit"]').addEventListener('click', function (e) {
+        e.preventDefault();
+        saveConfig('limits');
+    });
+
+    // 일시정지 / 재개
+    document.getElementById('btn-pause').addEventListener('click', function () {
+        sendControl(controlState.paused ? 'resume' : 'pause');
+    });
+
+    // 다음 구매 건너뛰기 / 취소
+    document.getElementById('btn-skip').addEventListener('click', function () {
+        sendControl(controlState.skip_next_buy ? 'unskip' : 'skip');
     });
 
     // 스케줄 설정 저장
@@ -295,9 +338,21 @@ function populateDashboard(config) {
         document.getElementById('check_time').value = config.schedule.check_time || '23:00';
     }
 
+    // Limits
+    if (config.limits) {
+        ['weekly_buy', 'monthly_buy', 'weekly_deposit', 'monthly_deposit'].forEach(key => {
+            document.getElementById(`limit_${key}`).value = config.limits[key];
+        });
+    }
+
     // System
     if (config.system) {
         document.getElementById('discord_webhook').value = config.system.discord_webhook || '';
+        // 토큰은 서버가 내려주지 않는다. 비워 두고 저장하면 기존 토큰이 유지된다.
+        document.getElementById('discord_bot_token').placeholder =
+            config.system.has_discord_bot_token ? '설정됨 (바꿀 때만 입력)' : '봇 토큰';
+        document.getElementById('discord_channel_id').value = config.system.discord_channel_id || '';
+        document.getElementById('discord_allowed_users').value = (config.system.discord_allowed_users || []).join(', ');
     }
 }
 
@@ -378,8 +433,17 @@ function saveConfig(source) {
             check_day: document.getElementById('check_day').value,
             check_time: document.getElementById('check_time').value
         },
+        limits: {
+            weekly_buy: parseInt(document.getElementById('limit_weekly_buy').value) || 0,
+            monthly_buy: parseInt(document.getElementById('limit_monthly_buy').value) || 0,
+            weekly_deposit: parseInt(document.getElementById('limit_weekly_deposit').value) || 0,
+            monthly_deposit: parseInt(document.getElementById('limit_monthly_deposit').value) || 0
+        },
         system: {
-            discord_webhook: document.getElementById('discord_webhook').value
+            discord_webhook: document.getElementById('discord_webhook').value,
+            discord_bot_token: document.getElementById('discord_bot_token').value,
+            discord_channel_id: document.getElementById('discord_channel_id').value.trim(),
+            discord_allowed_users: document.getElementById('discord_allowed_users').value
         }
     };
 
@@ -403,6 +467,10 @@ function saveConfig(source) {
         .then(response => response.json())
         .then(data => {
             alert(data.message);
+            if (source === 'system') {
+                document.getElementById('discord_bot_token').value = '';
+                loadConfig();
+            }
         })
         .catch(error => {
             console.error('Error saving config:', error);
@@ -427,6 +495,23 @@ function updateStatus() {
                 dot.classList.add('stopped');
                 document.querySelector('.status-indicator').innerHTML = '<span class="dot stopped"></span> Bot Stopped';
             }
+
+            // 자동 실행 제어 상태
+            controlState = { paused: !!data.paused, skip_next_buy: !!data.skip_next_buy };
+            const parts = [data.paused ? '⏸️ 일시정지 중' : '▶️ 실행 중'];
+            if (data.skip_next_buy) parts.push('⏭️ 다음 구매 건너뜀');
+            document.getElementById('control-state').textContent = parts.join(' / ');
+            document.getElementById('btn-pause').textContent = data.paused ? '재개' : '일시정지';
+            document.getElementById('btn-skip').textContent = data.skip_next_buy ? '건너뛰기 취소' : '다음 구매 건너뛰기';
+
+            // 지출 한도 사용량
+            Object.entries(data.usage || {}).forEach(([key, u]) => {
+                const el = document.getElementById(`usage_${key}`);
+                if (el) {
+                    el.textContent = `(사용 ${u.used.toLocaleString()}원)`;
+                    el.style.color = (u.limit && u.used >= u.limit) ? '#ef4444' : '#94a3b8';
+                }
+            });
 
             // Update latest result text
             const resultText = document.getElementById('latest-result-text');

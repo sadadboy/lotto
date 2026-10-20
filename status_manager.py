@@ -47,7 +47,8 @@ class StatusManager:
             logger.error(f"Status save failed: {e}")
 
     def update_balance(self, balance):
-        self.save_status({"balance": int(balance)})
+        self.save_status({"balance": int(balance),
+                          "balance_updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
 
     def update_status(self, status):
         self.save_status({"status": status})
