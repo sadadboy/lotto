@@ -267,6 +267,9 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
 
     # '구매하기'를 눌렀는지. 누른 뒤의 오류는 재시도하면 이중 구매가 되므로 구분한다.
     buy_clicked = False
+    # 구매 검증 때 이 시각 이후의 영수증만 이번 구매로 본다.
+    from datetime import datetime
+    started_at = datetime.now()
 
     # 지난 실패의 스크린샷이 남아 있으면 이번 실패 때 옛 화면이 함께 전송된다.
     # (2026-10-16의 iframe_timeout.png가 계속 남아 있었음)
@@ -460,6 +463,19 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
 
         except Exception as e:
             logger.warning(f"구매 후 후처리(잔액/영수증) 실패: {e}")
+
+        # 구매내역 API로 실제 구매를 검증한다 (회차·게임 수·지정 번호). 영수증 이미지는 사람이 봐야
+        # 알 수 있지만, 이건 요청과 다르면 바로 알린다. 게임별 전략도 여기서 기록해 통계에 쓴다.
+        try:
+            from dh_history import verify_purchase
+            ok, verify_msg, found = verify_purchase(page, prepared, started_at)
+            logger.info(verify_msg)
+            send_discord_message(verify_msg)
+            return {"verified": ok, "rounds": sorted({r['round'] for r in found})}
+        except Exception as e:
+            logger.warning(f"구매 검증 실패(구매 자체는 완료): {e}")
+            send_discord_message(f"⚠️ 구매는 완료됐지만 구매내역 검증을 하지 못했습니다: {e}")
+            return {"verified": False, "rounds": []}
 
     except BreakTimeBlocked as e:
         # 원인이 명확하므로 일반 오류와 다르게 안내한다.

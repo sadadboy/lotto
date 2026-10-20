@@ -128,31 +128,44 @@ def buy_job():
         browser = None
         page = None
         timer = StepTimer()
+        attempt_started = datetime.now()
         try:
             logger.info(f"🛒 구매 시도 {attempt}/{total_attempts}")
             browser, page = login(user_id, user_pw, headless=headless)
             timer.mark("로그인")
 
-            buy_games(page, games_config, dry_run=False, prepared_games=prepared) # 실제 구매!
+            result = buy_games(page, games_config, dry_run=False, prepared_games=prepared) or {}  # 실제 구매!
             timer.mark("구매")
 
             logger.info(f"구매 시도 {attempt}/{total_attempts} 성공 ({timer.summary()})")
-            ledger.record_purchase('ok', games=len(prepared), amount=cost)
+            rounds = ", ".join(f"{r}회" for r in result.get('rounds', []))
+            ledger.record_purchase('ok', games=len(prepared), amount=cost,
+                                   note=rounds + ("" if result.get('verified') else " (검증 안 됨)"))
             if attempt > 1:
                 send_discord_message(f"✅ 재시도 {attempt - 1}회 만에 구매 성공")
             break
 
         except PurchaseMaybeSubmitted as e:
             timer.mark("실패")
-            # 돈이 나갔을 수 있으므로 한도 계산에 넣는다 (uncertain).
-            ledger.record_purchase('uncertain', games=len(prepared), amount=cost, note=_short(e))
             diag = dump_failure(page, f'buy_after_click_try{attempt}', e)
             logger.error(f"구매 버튼 클릭 후 오류 — 재시도하지 않음 ({timer.summary()}): {e}")
-            send_discord_message(
-                "⚠️ '구매하기' 버튼을 누른 뒤 오류가 났습니다. 구매가 이미 처리됐을 수 있어 "
-                "이중 구매를 막기 위해 재시도하지 않습니다.\n"
-                f"동행복권 구매내역을 직접 확인해 주세요.\n오류: {e}\n진단 자료: {diag}"
-            )
+            # 구매가 됐는지 구매내역에서 직접 확인한다. 확인이 안 되면 돈이 나갔을 수 있으므로
+            # 한도 계산에 넣고(uncertain) 사람에게 확인을 요청한다. 어느 쪽이든 재시도는 하지 않는다.
+            found = _find_purchase_after(user_id, user_pw, attempt_started)
+            if found:
+                ledger.record_purchase('ok', games=len(prepared), amount=cost,
+                                       note=f"클릭 후 오류였으나 구매내역에서 확인 ({found})")
+                send_discord_message(
+                    f"✅ '구매하기' 버튼을 누른 뒤 오류가 났지만, 구매내역에서 구매가 확인됐습니다 ({found}).\n"
+                    f"오류: {_short(e)}"
+                )
+            else:
+                ledger.record_purchase('uncertain', games=len(prepared), amount=cost, note=_short(e))
+                send_discord_message(
+                    "⚠️ '구매하기' 버튼을 누른 뒤 오류가 났습니다. 구매내역에서 아직 확인되지 않지만 "
+                    "반영이 늦을 수 있어 이중 구매를 막기 위해 재시도하지 않습니다.\n"
+                    f"동행복권 구매내역을 직접 확인해 주세요.\n오류: {e}\n진단 자료: {diag}"
+                )
             break
 
         except LoginCredentialError as e:
@@ -193,6 +206,25 @@ def buy_job():
     # 작업이 성공했든 실패했든 "언제 마지막으로 돌았는지"는 남긴다.
     # (대시보드의 마지막 실행 표시. 봇이 조용히 죽었을 때 이 값이 멈춰 있으면 바로 드러난다.)
     _mark_last_run()
+
+
+def _find_purchase_after(user_id, user_pw, since):
+    """since 이후 구매가 구매내역에 있으면 '1247회 5게임' 같은 요약을, 없거나 확인 실패면 None."""
+    from dh_history import find_purchases_since
+    from auth import close_browser
+    browser = None
+    try:
+        browser, page = login(user_id, user_pw, headless=True)
+        found = find_purchases_since(page, since - timedelta(minutes=1))
+        if not found:
+            return None
+        return ", ".join(f"{r['round']}회 {len(r['games'])}게임" for r in found)
+    except Exception as e:
+        logger.warning(f"구매내역 확인 실패: {e}")
+        return None
+    finally:
+        if browser:
+            close_browser(browser)
 
 
 def _mark_last_run():
@@ -376,7 +408,7 @@ def check_winning_job():
         from status_manager import status_manager
         status_manager.update_last_run()
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def refresh_status_job():
     """스케줄러 시작 시 1회 로그인하여 예치금/상태를 즉시 갱신한다.

@@ -121,7 +121,16 @@ def _parse_row(row):
         "num5": numbers[4],
         "num6": numbers[5],
         "bonus": bonus,
+        # 등수별 1게임당 당첨금 (CSV 캐시에는 저장하지 않는다)
+        "prizes": {rank: _to_int(row.get(f"rnk{rank}WnAmt")) for rank in range(1, 6)},
     }
+
+
+def _to_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _fetch_batch(session, epsd=None, cursor=None):
@@ -346,6 +355,21 @@ def fetch_lotto_data(drw_no):
     if drw_no in cache:
         return cache[drw_no]
 
+    session = _new_session()
+    try:
+        for row in _fetch_batch(session, epsd=drw_no):
+            if row["drwNo"] == drw_no:
+                return row
+        return None
+    finally:
+        session.close()
+
+
+def fetch_draw_result(drw_no):
+    """특정 회차의 당첨번호·보너스·등수별 당첨금을 API에서 직접 조회한다 (캐시 미사용).
+
+    당첨 확인용이라 캐시에 없는 당첨금 정보가 필요하다. 아직 추첨 전이거나 실패하면 None.
+    """
     session = _new_session()
     try:
         for row in _fetch_batch(session, epsd=drw_no):

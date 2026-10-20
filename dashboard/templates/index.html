@@ -251,6 +251,42 @@
         </div>
     </div>
 
+    <!-- Cumulative Stats -->
+    <div class="settings-grid" style="margin-top: 20px;">
+        <div class="card settings-card" id="section-stats" style="grid-column: span 2;">
+            <div class="card-header">
+                <h3>📈 누적 통계</h3>
+            </div>
+            <p id="stats-empty" style="color: #94a3b8;">구매내역을 불러오는 중...</p>
+            <div id="stats-body" style="display: none;">
+                <div class="stats-tiles">
+                    <div class="stats-tile"><span>총 구매</span><strong id="st-spent">-</strong></div>
+                    <div class="stats-tile"><span>총 당첨금</span><strong id="st-won">-</strong></div>
+                    <div class="stats-tile"><span>회수율</span><strong id="st-rate">-</strong></div>
+                    <div class="stats-tile"><span>손익</span><strong id="st-profit">-</strong></div>
+                </div>
+                <p id="st-ranks" style="color: #94a3b8; margin: 12px 0;"></p>
+                <div class="stats-tables">
+                    <div>
+                        <h4 class="stats-subtitle">전략별</h4>
+                        <table class="stats-table">
+                            <thead><tr><th>전략</th><th>게임</th><th>평균 일치</th><th>당첨</th></tr></thead>
+                            <tbody id="st-modes"></tbody>
+                        </table>
+                        <p style="color: #64748b; font-size: 0.8em; margin-top: 6px;">무작위 번호의 기대 평균 일치는 0.8개입니다.</p>
+                    </div>
+                    <div>
+                        <h4 class="stats-subtitle">최근 구매</h4>
+                        <table class="stats-table">
+                            <thead><tr><th>회차</th><th>구매일</th><th>금액</th><th>결과</th></tr></thead>
+                            <tbody id="st-recent"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Consolidated Screenshots Section -->
     <div class="settings-grid" style="margin-top: 20px;">
         <div class="card settings-card" style="grid-column: span 2;">

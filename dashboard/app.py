@@ -330,6 +330,25 @@ def get_status():
         "usage": usage,
     })
 
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    """누적 통계 + 최근 회차별 결과 (data/tickets.json — 구매·당첨확인 때 동기화됨)"""
+    import tickets
+    data = tickets.load()
+    recent = []
+    for rec in sorted(data.values(), key=lambda r: r.get('sold_at', ''), reverse=True)[:10]:
+        ev = tickets.evaluate(rec)
+        if not rec.get('drawn'):
+            result = "추첨 전"
+        elif ev is None:
+            result = rec.get('site_result') or "-"
+        else:
+            ranks = [e['rank'] for e in ev if e['rank']]
+            result = f"{min(ranks)}등" if ranks else f"낙첨 (최고 {max(e['hit'] for e in ev)}개)"
+        recent.append({"round": rec['round'], "date": rec.get('sold_at', '')[:10], "games": len(rec['games']),
+                       "amount": rec['amount'], "won": rec.get('win_total') or 0, "result": result})
+    return jsonify({"stats": tickets.stats(data), "recent": recent})
+
 @app.route('/api/control', methods=['POST'])
 def control():
     """일시정지/재개, 다음 구매 건너뛰기 (디스코드 !일시정지 등과 같은 기능)"""

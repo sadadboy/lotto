@@ -48,6 +48,18 @@ def check_winning_result(page):
         send_discord_message("ℹ️ 최근 구매 내역을 찾을 수 없거나 캡처에 실패했습니다.")
         return
 
+    # 구매내역 API로 게임별 번호를 당첨번호와 직접 대조한다. 실패하면 아래의 기존 방식(결과 칸 읽기)으로 보낸다.
+    detailed = _detailed_result(page)
+    if detailed:
+        msg, summary = detailed
+        status_manager.update_latest_result(summary)
+        if screenshot_path:
+            send_discord_file(screenshot_path, msg)
+        else:
+            send_discord_message(msg)
+        _send_claim_reminders()
+        return
+
     import re
     result = result or ""
 
@@ -76,6 +88,39 @@ def check_winning_result(page):
         # 이미지가 없으면 메시지만 전송
         msg += "\n\n(⚠️ 영수증 이미지를 캡처하지 못했습니다.)"
         send_discord_message(msg)
+
+
+def _detailed_result(page):
+    """가장 최근 추첨 회차의 게임별 대조 결과 (메시지, 요약). 확인할 수 없으면 None."""
+    try:
+        import dh_history
+        import lotto_api
+        import tickets
+        from datetime import date
+
+        dh_history.sync(page)
+        records = [r for r in tickets.load().values() if r.get('draw_date', '9999') <= date.today().isoformat()]
+        if not records:
+            return None
+        round_no = max(r['round'] for r in records)
+        same_round = [r for r in records if r['round'] == round_no]
+        msg, summary, _ = dh_history.analyze_round(round_no, same_round, lotto_api.fetch_draw_result(round_no))
+        if msg is None:
+            return None
+        logger.info(f"{round_no}회 당첨 확인: {summary}")
+        return msg, f"{round_no}회 {summary}"
+    except Exception as e:
+        logger.warning(f"게임별 당첨 대조 실패 — 결과 칸 읽기 방식으로 대체: {e}")
+        return None
+
+
+def _send_claim_reminders():
+    try:
+        import dh_history
+        for line in dh_history.claim_reminders():
+            send_discord_message(line)
+    except Exception as e:
+        logger.warning(f"당첨금 수령 기한 확인 실패(무시): {e}")
 
 if __name__ == "__main__":
     # 테스트 실행

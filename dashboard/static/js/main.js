@@ -25,8 +25,57 @@ function sendControl(action) {
         .catch(error => console.error('Error sending control:', error));
 }
 
+function won(n) {
+    return Number(n || 0).toLocaleString() + '원';
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function loadStats() {
+    fetch('/api/stats')
+        .then(response => response.json())
+        .then(data => {
+            const s = data.stats;
+            if (!s || !s.tickets) {
+                document.getElementById('stats-empty').textContent =
+                    '아직 저장된 구매 기록이 없습니다. 당첨확인 작업 때 동행복권 구매내역에서 자동으로 채워집니다.';
+                return;
+            }
+            document.getElementById('stats-empty').style.display = 'none';
+            document.getElementById('stats-body').style.display = 'block';
+
+            const drawnSpent = s.spent - s.pending_spent;
+            const profit = s.won - drawnSpent;
+            document.getElementById('st-spent').textContent = won(s.spent);
+            document.getElementById('st-won').textContent = won(s.won);
+            document.getElementById('st-rate').textContent = s.return_rate === null ? '-' : s.return_rate + '%';
+            const profitEl = document.getElementById('st-profit');
+            profitEl.textContent = (profit > 0 ? '+' : '') + won(profit);
+            profitEl.style.color = profit >= 0 ? '#10b981' : '#ef4444';
+
+            document.getElementById('st-ranks').textContent =
+                `${s.first} ~ ${s.last} · 영수증 ${s.tickets}장 · 추첨 끝난 ${s.games}게임 · ` +
+                ['1', '2', '3', '4', '5'].map(r => `${r}등 ${s.by_rank[r]}`).join(' · ');
+
+            document.getElementById('st-modes').innerHTML = Object.entries(s.by_mode)
+                .sort((a, b) => b[1].games - a[1].games)
+                .map(([name, m]) => `<tr><td>${escapeHtml(name)}</td><td>${m.games}</td><td>${m.avg_hit}개</td>` +
+                    `<td>${m.wins}회${m.won ? ' (' + won(m.won) + ')' : ''}</td></tr>`)
+                .join('');
+
+            document.getElementById('st-recent').innerHTML = data.recent
+                .map(r => `<tr><td>${r.round}회</td><td>${r.date}</td><td>${won(r.amount)}</td>` +
+                    `<td>${escapeHtml(r.result)}${r.won ? ' · ' + won(r.won) : ''}</td></tr>`)
+                .join('');
+        })
+        .catch(error => console.error('Error loading stats:', error));
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     loadConfig();
+    loadStats();
     updateStatus();
 
     // 5초마다 상태 갱신

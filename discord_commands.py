@@ -37,6 +37,8 @@ HELP_TEXT = """🎱 **로또 봇 명령어**
 `!이번주` — 이번 주 구매 기록과 최근 당첨 결과
 `!기록` — 최근 구매·충전 기록 10건
 `!한도` — 지출 한도와 이번 주/달 사용액
+`!당첨` — 최근 추첨 회차의 게임별 번호 대조 결과
+`!통계` — 누적 구매액·당첨금·회수율, 전략별 성적
 
 **제어**
 `!일시정지` — 자동 구매·충전을 멈춤 (당첨확인은 계속)
@@ -148,6 +150,26 @@ def cmd_history(config):
     return "📜 **최근 기록**\n" + "\n".join(_record_line(k, r) for k, r in rows[:10])
 
 
+def cmd_latest_result(config):
+    """저장된 영수증으로 최근 추첨 회차를 대조한다. (구매내역은 당첨확인 작업 때 동기화된다)"""
+    import dh_history
+    import lotto_api
+    import tickets
+    today = datetime.now().date().isoformat()
+    records = [r for r in tickets.load().values() if r.get('draw_date', '9999') <= today]
+    if not records:
+        return "추첨이 끝난 구매 기록이 없습니다."
+    round_no = max(r['round'] for r in records)
+    msg, summary, _ = dh_history.analyze_round(
+        round_no, [r for r in records if r['round'] == round_no], lotto_api.fetch_draw_result(round_no))
+    return msg or f"{round_no}회는 아직 결과가 나오지 않았습니다."
+
+
+def cmd_stats(config):
+    import tickets
+    return tickets.stats_text()
+
+
 def cmd_pause(config):
     ledger.set_paused(True)
     return "⏸️ 자동 구매·충전을 일시정지했습니다. 당첨확인은 계속합니다. 다시 켜려면 `!재개`"
@@ -178,6 +200,8 @@ COMMANDS = {
     "일정": lambda c: "📅 **다음 일정**\n" + "\n".join(_schedule_lines(c)),
     "이번주": cmd_this_week,
     "기록": cmd_history,
+    "당첨": cmd_latest_result, "결과": cmd_latest_result,
+    "통계": cmd_stats, "stats": cmd_stats,
     "한도": lambda c: "💳 **지출 한도**\n" + "\n".join(_usage_lines(c)) + "\n한도 변경은 대시보드에서 합니다.",
     "일시정지": cmd_pause, "정지": cmd_pause, "pause": cmd_pause,
     "재개": cmd_resume, "resume": cmd_resume,
