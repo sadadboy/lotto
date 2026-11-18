@@ -37,6 +37,9 @@ def isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(requests, "get", blocked)
     monkeypatch.setattr(requests.Session, "request", blocked)
     monkeypatch.chdir(tmp_path)
+    # 동행복권 접속 확인(소켓 연결)도 기본은 '정상'으로. 실패 상황은 각 테스트가 따로 바꾼다.
+    import reachability
+    monkeypatch.setattr(reachability, "check", lambda *a, **k: {"ok": True, "results": []})
 
 
 @pytest.fixture(autouse=True)

@@ -9,6 +9,8 @@
 2. 스케줄러 멈춤 — 프로세스는 살아 있는데 하트비트가 오래 멈춰 있으면 알린다.
 3. 구매 누락 — 예약 구매 시각이 지났는데 그 이후 구매 작업 기록(ledger)이 하나도 없으면 알린다.
    구매가 실패/차단/건너뜀으로 끝난 경우는 구매 작업이 이미 알렸으므로 여기서는 알리지 않는다.
+4. 동행복권 접속 — 10분마다 연결해 보고, 연속 2번 실패하면 알린다(터널 끊김/IP 변경). 복구되면 다시 알린다.
+   구매 시각에 가서야 알게 되지 않도록 미리 확인하는 용도다. (reachability.py 참고)
 """
 import json
 import os
@@ -17,6 +19,7 @@ import time
 from datetime import datetime, timedelta
 
 import ledger
+import reachability
 from notification import send_discord_message
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +32,9 @@ BUY_GRACE = timedelta(minutes=90)
 HANG_THRESHOLD = timedelta(minutes=120)
 RESTART_WINDOW = timedelta(hours=6)
 MAX_RESTARTS = 3
+SITE_CHECK_INTERVAL = timedelta(minutes=10)
+# 한 번 실패는 일시적인 끊김일 수 있으므로 연속으로 실패해야 알린다.
+SITE_FAILS_TO_ALERT = 2
 
 TAG = "감시"
 
@@ -217,9 +223,46 @@ def tick(bot_manager, log, log_path, now=None):
             )
         updates['buy_alerted'] = slot_key
 
+    # ── 4. 동행복권 접속 (터널) ──
+    updates.update(_check_site(state, log, now))
+
     if updates:
         with ledger.edit() as data:
             data.setdefault('watchdog', {}).update(updates)
+
+
+def _check_site(state, log, now):
+    """SITE_CHECK_INTERVAL마다 동행복권에 연결해 보고, 상태가 바뀔 때만 알린다. ledger에 남길 값을 돌려준다."""
+    last = state.get('site_checked')
+    if last and now - datetime.fromisoformat(last) < SITE_CHECK_INTERVAL:
+        return {}
+
+    result = reachability.check()
+    updates = {'site_checked': now.isoformat(timespec='seconds')}
+    if result['ok']:
+        updates['site_fails'] = 0
+        if state.get('site_down_alerted'):
+            log("✅ [감시] 동행복권 접속 복구")
+            send_discord_message("✅ 동행복권 접속이 다시 됩니다. (터널 복구)", tag=TAG)
+            updates['site_down_alerted'] = False
+        return updates
+
+    fails = state.get('site_fails', 0) + 1
+    updates['site_fails'] = fails
+    detail = reachability.describe(result)
+    log(f"⚠️ [감시] 동행복권 접속 실패 ({fails}회 연속)\n{detail}")
+    if fails >= SITE_FAILS_TO_ALERT and not state.get('site_down_alerted'):
+        config = _load_config()
+        sched = config.get('schedule') or {}
+        nxt = next_slot(sched.get('buy_day', 'Saturday'), sched.get('buy_time', '10:00'), now)
+        send_discord_message(
+            f"🚨 동행복권에 접속할 수 없습니다. ({fails}회 연속 실패)\n{detail}\n"
+            f"{reachability.DOWN_HINT}\n"
+            f"이대로면 다음 예약 구매({fmt_slot(nxt)})가 실패합니다. 복구되면 다시 알려 드립니다.",
+            tag=TAG,
+        )
+        updates['site_down_alerted'] = True
+    return updates
 
 
 def start_in_background(bot_manager, log, log_path):

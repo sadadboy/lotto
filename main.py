@@ -69,6 +69,8 @@ def buy_job():
         _mark_last_run()
         return
 
+    _warn_if_site_down("구매")
+
     security_manager = SecurityManager()
     user_id = config['account']['user_id']
     # Decrypt password
@@ -236,6 +238,25 @@ def _find_purchase_after(user_id, user_pw, since):
             close_browser(browser)
 
 
+def _warn_if_site_down(job_name):
+    """작업 전에 동행복권 접속을 확인한다. 안 되면 원인 힌트와 함께 알리고, 작업은 그대로 시도한다.
+    (짧은 끊김이면 이후 재시도 중에 복구될 수 있으므로 여기서 멈추지 않는다.)"""
+    import reachability
+    try:
+        result = reachability.check()
+    except Exception as e:
+        logger.warning(f"동행복권 접속 확인 중 오류: {e}")
+        return
+    if result['ok']:
+        return
+    detail = reachability.describe(result)
+    logger.error(f"동행복권 접속 불가 ({job_name} 전 확인)\n{detail}")
+    send_discord_message(
+        f"🚨 {job_name} 전에 확인해 보니 동행복권에 접속할 수 없습니다.\n{detail}\n"
+        f"{reachability.DOWN_HINT}\n일단 그대로 진행하지만 실패할 가능성이 큽니다."
+    )
+
+
 def _mark_last_run():
     from status_manager import status_manager
     status_manager.update_last_run()
@@ -260,6 +281,8 @@ def deposit_job():
         send_discord_message("⏸️ 자동 실행 일시정지 중이라 이번 충전을 건너뜁니다. (재개: `!재개`)")
         _mark_last_run()
         return
+
+    _warn_if_site_down("충전")
 
     security_manager = SecurityManager()
     user_id = config['account']['user_id']
