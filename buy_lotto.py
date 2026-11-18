@@ -61,12 +61,14 @@ def prepare_games(games_config: list, max_games: int = MAX_GAMES_PER_PURCHASE):
 
         logger.info(f"Game {game_id} 번호 생성 중 (모드: {mode})...")
 
-        manual_numbers = []
-        if manual_numbers_str:
-            try:
-                manual_numbers = [int(n.strip()) for n in manual_numbers_str.split(',') if n.strip()]
-            except ValueError:
-                logger.warning(f"Game {game_id}: 번호 형식이 잘못되었습니다. ({manual_numbers_str})")
+        manual_numbers, err = strategies.parse_numbers(manual_numbers_str, mode)
+        if err:
+            # 잘못된 번호를 그대로 찍으면 구매 자체가 실패한다. 번호를 버리고
+            # (수동→랜덤, 반자동→사이트 자동선택) 진행하되 사용자에게 알린다.
+            msg = f"⚠️ Game {game_id} 번호 설정 오류 — {err} ({manual_numbers_str!r}). 입력 번호 없이 진행합니다."
+            logger.warning(msg)
+            send_discord_message(msg)
+            manual_numbers = []
 
         numbers = strategies.generate_numbers(mode, manual_numbers, analysis_range)
 
@@ -261,6 +263,10 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
         dry_run (bool): True이면 실제 '구매하기' 버튼을 누르지 않음
         prepared_games (list): prepare_games()로 미리 계산해 둔 번호.
                                None이면 여기서(구매창 진입 전에) 계산한다.
+
+    Returns:
+        dict: {"purchased": bool, ...}. purchased가 False면 '구매하기'를 누르지 않았다(reason에 사유).
+              True면 verified(구매내역 검증 통과 여부)와 rounds(회차 목록)가 함께 온다.
     """
     logger.info("로또 구매 프로세스 시작...")
     send_discord_message("🎟️ 로또 구매 프로세스를 시작합니다.")
@@ -287,7 +293,7 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
         if not prepared:
             logger.info("구매할 게임이 없습니다.")
             send_discord_message("ℹ️ 활성화된 게임이 없어 구매를 건너뜁니다.")
-            return
+            return {"purchased": False, "reason": "활성 게임 없음"}
 
         purchased_details = [g['label'] for g in prepared]
 
@@ -328,7 +334,7 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
             if available_count <= 0:
                 logger.warning("구매 가능 수량이 없습니다.")
                 send_discord_message("🚫 구매 가능 수량이 0입니다. 구매를 중단합니다.")
-                return
+                return {"purchased": False, "reason": "구매 가능 수량 0"}
 
             games_to_mark = prepared[:available_count]
             if len(games_to_mark) < len(prepared):
@@ -354,7 +360,7 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
         if dry_run:
             logger.warning("[Dry Run] 실제 구매를 진행하지 않습니다.")
             send_discord_message(f"🧪 [Dry Run] 구매 테스트 완료!\n" + "\n".join(purchased_details))
-            return
+            return {"purchased": False, "reason": "dry run"}
 
         # 팝업 핸들러 등록 (모든 팝업에 대해 반응하도록)
         def handle_dialog(dialog):
@@ -471,11 +477,11 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
             ok, verify_msg, found = verify_purchase(page, prepared, started_at)
             logger.info(verify_msg)
             send_discord_message(verify_msg)
-            return {"verified": ok, "rounds": sorted({r['round'] for r in found})}
+            return {"purchased": True, "verified": ok, "rounds": sorted({r['round'] for r in found})}
         except Exception as e:
             logger.warning(f"구매 검증 실패(구매 자체는 완료): {e}")
             send_discord_message(f"⚠️ 구매는 완료됐지만 구매내역 검증을 하지 못했습니다: {e}")
-            return {"verified": False, "rounds": []}
+            return {"purchased": True, "verified": False, "rounds": []}
 
     except BreakTimeBlocked as e:
         # 원인이 명확하므로 일반 오류와 다르게 안내한다.

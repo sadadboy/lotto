@@ -12,10 +12,6 @@ from loguru import logger
 
 import lotto_api
 
-# 기존 호출부 호환용 (analysis.get_latest_drw_no / analysis.fetch_lotto_data)
-get_latest_drw_no = lotto_api.estimate_latest_drw_no
-fetch_lotto_data = lotto_api.fetch_lotto_data
-
 
 def fetch_all_history(filename="lotto_history.csv"):
     """1회부터 최신 회차까지 모든 데이터를 수집하여 CSV로 저장합니다.

@@ -37,6 +37,35 @@ DAY_INDEX = {d: i for i, d in enumerate(
 DAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
 
+SCHEDULE_FIELDS = (
+    # (이름, 요일 키, 시간 키, 기본 요일, 기본 시간)
+    ("구매", "buy_day", "buy_time", "Saturday", "10:00"),
+    ("충전", "deposit_day", "deposit_time", "Friday", "18:00"),
+    ("당첨확인", "check_day", "check_time", "Saturday", "23:00"),
+)
+
+
+def _valid_hhmm(hhmm):
+    try:
+        h, m = (hhmm or '').split(':')
+        return len(h) == 2 and len(m) == 2 and 0 <= int(h) <= 23 and 0 <= int(m) <= 59
+    except ValueError:
+        return False
+
+
+def schedule_errors(sched):
+    """스케줄 설정 오류 목록 (없으면 빈 리스트). 대시보드 저장과 봇 핫리로드가 함께 쓴다."""
+    errors = []
+    for label, day_key, time_key, default_day, default_time in SCHEDULE_FIELDS:
+        day = (sched or {}).get(day_key, default_day)
+        hhmm = (sched or {}).get(time_key, default_time)
+        if (day or '').lower() not in DAY_INDEX:
+            errors.append(f"{label} 요일이 올바르지 않습니다: {day!r}")
+        if not _valid_hhmm(hhmm):
+            errors.append(f"{label} 시간이 올바르지 않습니다 (HH:MM): {hhmm!r}")
+    return errors
+
+
 def last_slot(day, hhmm, now=None):
     """매주 day hh:mm 예약의 가장 최근 실행 시각 (now 이전). 설정이 잘못됐으면 None."""
     now = now or datetime.now()

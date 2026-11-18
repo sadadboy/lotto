@@ -64,67 +64,65 @@ def load_config():
         print(f"[DEBUG] Config load error: {e}")
         return default_config
 
+def validate_config(config):
+    """저장 전에 거른다. 잘못된 값이 저장되면 봇이 그 주 구매를 놓칠 수 있다. 반환: 오류 목록"""
+    from strategies import validate_games
+    from bot_watchdog import schedule_errors
+    errors = []
+    if 'games' in config:
+        errors += validate_games(config['games'])
+    if 'schedule' in config:
+        errors += schedule_errors(config['schedule'])
+    return errors
+
+
 def save_config(config):
+    """설정을 저장한다. 실패하면 예외를 그대로 올려 화면에 '저장됨'이라고 잘못 보이지 않게 한다."""
     print(f"[DEBUG] Saving config to: {CONFIG_FILE}")
-    try:
-        # Encrypt sensitive data
-        if config.get('account'):
-            user_pw = config['account'].get('user_pw', '')
-            pay_pw = config['account'].get('pay_pw', '')
-            
-            # Only encrypt if it's not already encrypted (simple check: length > 50 usually means encrypted)
-            # But better logic: The frontend sends plaintext. We ALWAYS encrypt before saving.
-            # If the frontend sends the *already encrypted* string (because it loaded it), we might double encrypt.
-            # However, for simplicity and security, we assume the user enters new passwords or we handle it carefully.
-            # Strategy: We will assume input is plaintext if it's short, or we just encrypt. 
-            # Actually, to avoid double encryption issues if we load->save without changing:
-            # We should decrypt when loading for the frontend? NO. Security risk.
-            # We should keep them encrypted in the frontend? No, user can't edit.
-            # Solution: Send EMPTY password to frontend. User must re-enter to change.
-            
-            # But wait, if we send empty, and user saves, we overwrite with empty.
-            # So we need to check: if input is empty, KEEP existing value.
-            
-            current_config = load_config()
-            existing_account = current_config.get('account', {})
-            
-            if not user_pw and existing_account.get('user_pw'):
-                config['account']['user_pw'] = existing_account['user_pw'] # Keep existing (encrypted)
-            elif user_pw:
-                config['account']['user_pw'] = security_manager.encrypt(user_pw) # Encrypt new
-                
-            if not pay_pw and existing_account.get('pay_pw'):
-                config['account']['pay_pw'] = existing_account['pay_pw'] # Keep existing (encrypted)
-            elif pay_pw:
-                config['account']['pay_pw'] = security_manager.encrypt(pay_pw) # Encrypt new
-                
-        system = config.get('system')
-        if isinstance(system, dict):
-            # 봇 토큰도 비밀번호처럼 암호화 저장하고, 비워서 보내면 기존 값을 유지한다.
-            token = (system.pop('discord_bot_token', '') or '').strip()
-            if token:
-                system['discord_bot_token'] = security_manager.encrypt(token)
-            users = system.get('discord_allowed_users')
-            if isinstance(users, str):
-                system['discord_allowed_users'] = [u.strip() for u in users.replace('\n', ',').split(',') if u.strip()]
-            # 대시보드 비밀번호는 access.py로만 바꾼다. has_*는 화면 표시용 값이다.
-            system.pop('dashboard_password_hash', None)
-            system.pop('has_discord_bot_token', None)
+    # 비밀번호는 화면에 빈 값으로 내려보낸다(암호문/평문 모두 노출하지 않음).
+    # 그래서 빈 값이 오면 기존 암호문을 유지하고, 값이 오면 새로 암호화한다.
+    if config.get('account'):
+        user_pw = config['account'].get('user_pw', '')
+        pay_pw = config['account'].get('pay_pw', '')
 
-        # 화면은 자기가 아는 항목만 보내므로, 받은 값을 기존 설정 위에 섹션 단위로 덮어쓴다.
-        # (통째로 저장하면 debug_screenshots, 대시보드 비밀번호 등 화면에 없는 설정이 지워졌다.)
-        merged = load_config()
-        for key, value in config.items():
-            if isinstance(value, dict) and isinstance(merged.get(key), dict):
-                merged[key].update(value)
-            else:
-                merged[key] = value
+        current_config = load_config()
+        existing_account = current_config.get('account', {})
 
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(merged, f, indent=4, ensure_ascii=False)
-        print("[DEBUG] Config saved successfully.")
-    except Exception as e:
-        print(f"[DEBUG] Config save error: {e}")
+        if not user_pw and existing_account.get('user_pw'):
+            config['account']['user_pw'] = existing_account['user_pw'] # Keep existing (encrypted)
+        elif user_pw:
+            config['account']['user_pw'] = security_manager.encrypt(user_pw) # Encrypt new
+
+        if not pay_pw and existing_account.get('pay_pw'):
+            config['account']['pay_pw'] = existing_account['pay_pw'] # Keep existing (encrypted)
+        elif pay_pw:
+            config['account']['pay_pw'] = security_manager.encrypt(pay_pw) # Encrypt new
+
+    system = config.get('system')
+    if isinstance(system, dict):
+        # 봇 토큰도 비밀번호처럼 암호화 저장하고, 비워서 보내면 기존 값을 유지한다.
+        token = (system.pop('discord_bot_token', '') or '').strip()
+        if token:
+            system['discord_bot_token'] = security_manager.encrypt(token)
+        users = system.get('discord_allowed_users')
+        if isinstance(users, str):
+            system['discord_allowed_users'] = [u.strip() for u in users.replace('\n', ',').split(',') if u.strip()]
+        # 대시보드 비밀번호는 access.py로만 바꾼다. has_*는 화면 표시용 값이다.
+        system.pop('dashboard_password_hash', None)
+        system.pop('has_discord_bot_token', None)
+
+    # 화면은 자기가 아는 항목만 보내므로, 받은 값을 기존 설정 위에 섹션 단위로 덮어쓴다.
+    # (통째로 저장하면 debug_screenshots, 대시보드 비밀번호 등 화면에 없는 설정이 지워졌다.)
+    merged = load_config()
+    for key, value in config.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key].update(value)
+        else:
+            merged[key] = value
+
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(merged, f, indent=4, ensure_ascii=False)
+    print("[DEBUG] Config saved successfully.")
 
 # 버전 정보 로드
 def load_version_info():
@@ -178,8 +176,18 @@ def handle_config():
         return jsonify(config)
     elif request.method == 'POST':
         new_config = request.json
+        if not isinstance(new_config, dict):
+            return jsonify({"status": "error", "message": "잘못된 요청입니다."}), 400
         print(f"[DEBUG] Received config update: {new_config.keys()}")
-        save_config(new_config)
+        errors = validate_config(new_config)
+        if errors:
+            return jsonify({"status": "error",
+                            "message": "저장하지 않았습니다 — 설정 오류:\n- " + "\n- ".join(errors)}), 400
+        try:
+            save_config(new_config)
+        except Exception as e:
+            dash_log(f"❌ 설정 저장 실패: {e}")
+            return jsonify({"status": "error", "message": f"설정 저장에 실패했습니다: {e}"}), 500
         return jsonify({"status": "success", "message": "설정이 저장되었습니다."})
 
 import subprocess

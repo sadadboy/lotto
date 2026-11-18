@@ -19,7 +19,7 @@ Playwright 기반 동행복권 로또 6/45 자동 구매 봇입니다. 로그인
 | `config.json` | 계정/게임/스케줄/Discord 웹훅 설정. `user_pw`·`pay_pw`는 `secret.key`로 암호화되어 저장 |
 | `secret.key` | 위 암호문을 복호화하는 Fernet 키. **이 파일이 없으면 로그인 불가** |
 
-> `config.json` 최초 생성은 `python setup_auth.py`(암호화 저장) 또는 `config.example.json`을 참고하세요.
+> `config.json` 최초 생성은 `python setup_auth.py` — 계정 정보를 암호화해 `config.json`에 저장하고, `secret.key`가 없으면 만듭니다.
 > `config.json`과 `secret.key`는 **같은 키 쌍**이어야 복호화됩니다 (한 PC에서 만들어 함께 옮기세요).
 
 ---
@@ -90,6 +90,8 @@ docker compose exec lotto-bot python dashboard/access.py set-password
 - **스케줄**(기본): 매주 **토요일 구매 11:44 / 당첨확인 22:40**. (충전은 `deposit_job`이 현재 비활성이라 자동 실행 안 함)
 - **스케줄 시간 변경 시 봇 재시작 불필요** — `config.json`의 `schedule` 값을 바꾸면(대시보드 설정 저장 또는 파일 편집) 봇이 **5초 내에 감지하여 새 시간으로 자동 재등록**합니다.
 - 계정/게임 설정 변경도 다음 작업 실행 때 자동 반영됩니다 (작업이 매번 config를 다시 읽음).
+- **저장 전 검증**: 수동/반자동 번호(1~45, 중복 없음, 수동은 6개)와 요일·시간(HH:MM)이 틀리면 대시보드가 저장을 거부합니다.
+  파일을 직접 고쳐 틀린 스케줄이 들어가면 봇은 **기존 일정을 유지**하고 디스코드로 알립니다.
 
 ---
 
@@ -221,7 +223,22 @@ docker compose up -d --build     # 재빌드 & 재시작
 | `discord_commands.py` | 디스코드 채널 명령 (`!도움말` 등) |
 | `dh_history.py` | 동행복권 구매내역 API — 동기화, 구매 검증, 당첨 대조 |
 | `tickets.py` | 영수증 저장소(`data/tickets.json`), 등수 계산, 누적 통계 |
+| `security.py` | 비밀번호 암호화 (`secret.key`). 암호문이 있는데 키가 없으면 새 키를 만들지 않고 멈춤 |
+| `setup_auth.py` | 최초 설정 — 계정 정보를 암호화해 `config.json`에 저장 |
 | `scripts/update_balance.py` | 잔액 수동 갱신 스크립트 |
+| `scripts/check_notification.py` | 디스코드 웹훅 점검 (실제 전송) |
+| `tests/` | 자동 테스트 (네트워크·브라우저 없이 동작) |
+
+---
+
+## 7. 테스트
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+번호 검증·지출 한도·스케줄 검증·당첨 판정·감시·대시보드 설정 저장을 확인합니다.
+네트워크와 디스코드 전송은 막혀 있고, 실제 `config.json`·`data/`·`logs/`는 건드리지 않습니다.
 
 ---
 

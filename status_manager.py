@@ -16,8 +16,6 @@ class StatusManager:
                 "status": "stopped",
                 "balance": 0,
                 "last_run": "N/A",
-                "latest_ticket_img": "",
-                "version": "v1.1.0"
             })
 
     def load_status(self):
@@ -50,17 +48,9 @@ class StatusManager:
         self.save_status({"balance": int(balance),
                           "balance_updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
 
-    def update_status(self, status):
-        self.save_status({"status": status})
-
     def update_last_run(self):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.save_status({"last_run": now})
-
-    def update_ticket_image(self, image_path):
-        # Store relative path for web access if needed, or just filename
-        # For dashboard, we might need to copy it to static folder
-        self.save_status({"latest_ticket_img": image_path})
 
     def update_latest_result(self, result_text):
         self.save_status({"latest_result": result_text})

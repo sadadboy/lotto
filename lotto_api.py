@@ -70,9 +70,6 @@ def estimate_latest_drw_no():
     return diff.days // 7 + 1
 
 
-# 호환용 별칭 (기존 호출부가 이 이름을 쓴다)
-get_latest_drw_no = estimate_latest_drw_no
-
 
 _latest_cache = {"value": None, "expires_at": 0.0}
 
@@ -347,22 +344,6 @@ def fetch_recent_numbers(count, latest=None):
         [row["num1"], row["num2"], row["num3"], row["num4"], row["num5"], row["num6"]]
         for row in fetch_draws(count, latest=latest)
     ]
-
-
-def fetch_lotto_data(drw_no):
-    """특정 회차 1건을 조회한다 (구 analysis.fetch_lotto_data 호환)."""
-    cache = load_history_cache()
-    if drw_no in cache:
-        return cache[drw_no]
-
-    session = _new_session()
-    try:
-        for row in _fetch_batch(session, epsd=drw_no):
-            if row["drwNo"] == drw_no:
-                return row
-        return None
-    finally:
-        session.close()
 
 
 def fetch_draw_result(drw_no):

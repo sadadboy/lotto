@@ -20,6 +20,54 @@ def _notify_fallback(mode_label, reason):
         pass
 
 
+VALID_MODES = ('auto', 'manual', 'semi_auto', 'ai', 'max_first')
+
+
+def parse_numbers(text, mode):
+    """'1, 2, 3' 같은 입력을 번호 리스트로 바꾼다. 반환: (번호 리스트, 오류 문자열|None)
+
+    구매창에 없는 번호(46 등)를 찍으려 하면 클릭이 30초 타임아웃으로 실패하고, 재시도해도
+    같은 이유로 매번 실패해 그 주 구매를 통째로 놓친다. 중복 번호는 같은 칸을 두 번 눌러
+    선택이 풀린다. 그래서 저장할 때(대시보드)와 구매할 때 모두 여기서 걸러낸다.
+    """
+    text = (text or '').strip()
+    if mode not in ('manual', 'semi_auto'):
+        return [], None
+    numbers = []
+    for part in text.replace('\n', ',').split(','):
+        part = part.strip()
+        if not part:
+            continue
+        if not part.isdigit():
+            return None, f"숫자가 아닌 값이 있습니다: '{part}'"
+        numbers.append(int(part))
+    if any(n < 1 or n > 45 for n in numbers):
+        return None, f"번호는 1~45 사이여야 합니다: {[n for n in numbers if n < 1 or n > 45]}"
+    if len(set(numbers)) != len(numbers):
+        return None, "중복된 번호가 있습니다"
+    if mode == 'manual' and len(numbers) != 6:
+        return None, f"수동은 번호 6개가 필요합니다 (입력 {len(numbers)}개)"
+    if mode == 'semi_auto' and len(numbers) > 6:
+        return None, f"반자동은 번호를 6개 이하로 입력하세요 (입력 {len(numbers)}개)"
+    return sorted(numbers), None
+
+
+def validate_games(games):
+    """대시보드 저장용. 활성 게임의 설정 오류 목록 (없으면 빈 리스트)."""
+    errors = []
+    for g in games or []:
+        if not g.get('active', True):
+            continue
+        mode = g.get('mode')
+        if mode not in VALID_MODES:
+            errors.append(f"Game {g.get('id')}: 알 수 없는 모드 '{mode}'")
+            continue
+        _, err = parse_numbers(g.get('numbers', ''), mode)
+        if err:
+            errors.append(f"Game {g.get('id')}: {err}")
+    return errors
+
+
 def generate_numbers(mode, manual_numbers=None, analysis_range=50):
     """
     모드에 따라 6개의 로또 번호를 생성하여 반환합니다.
@@ -39,14 +87,15 @@ def generate_numbers(mode, manual_numbers=None, analysis_range=50):
         
     elif mode == 'manual':
         if not manual_numbers or len(manual_numbers) != 6:
-            logger.warning(f"수동 모드인데 번호가 6개가 아닙니다: {manual_numbers}")
-            # 비상시 랜덤? 아니면 에러? 일단 랜덤으로 채움
+            # 사용자가 고른 번호 대신 랜덤으로 사게 되므로 반드시 알린다.
+            _notify_fallback("수동", f"번호가 6개가 아닙니다: {manual_numbers}")
             return get_random_numbers()
         return sorted(manual_numbers)
         
     elif mode == 'semi_auto':
         if not manual_numbers:
-            manual_numbers = []
+            # 고정 번호가 없으면 반자동이 아니라 그냥 자동이다 (혼합선택 탭에서 0개+자동선택은 검증된 경로가 아님).
+            return None
         # 반자동은 사용자가 입력한 번호만 반환하고, 나머지는 사이트에서 '자동선택' 체크
         # 하지만 buy_lotto.py에서 이를 처리하려면 "입력된 번호만 선택하고 자동선택 체크" 로직이 필요함
         return sorted(manual_numbers)
@@ -149,19 +198,6 @@ def get_max_first_numbers(range_val):
         logger.error(f"번호 분석 실패: {e}")
         _notify_fallback("Max 1st (최다 출현)", str(e))
         return get_random_numbers()
-
-
-def get_latest_drw_no():
-    """현재 최신 회차 번호를 반환합니다 (추첨일 기준 추정값)."""
-    return lotto_api.estimate_latest_drw_no()
-
-
-def fetch_lotto_numbers(drw_no):
-    """특정 회차의 당첨 번호 6개를 가져옵니다. 없으면 None."""
-    row = lotto_api.fetch_lotto_data(drw_no)
-    if not row:
-        return None
-    return [row[f"num{i}"] for i in range(1, 7)]
 
 
 if __name__ == "__main__":

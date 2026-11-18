@@ -16,12 +16,13 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.j
 # 예전에는 bot.log가 컨테이너 안에만 있어 배포할 때마다 통째로 사라졌다.)
 # 주의: 파일 단위가 아니라 디렉토리 단위로 마운트해야 loguru 로테이션(os.rename)이 동작한다.
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
-os.makedirs(LOG_DIR, exist_ok=True)
 LOG_PATH = os.path.join(LOG_DIR, 'bot.log')
 
-# 로그 파일 설정 (덮어쓰기 모드 X, 추가 모드 O, 매일 회전 등은 선택사항)
-# 여기서는 간단하게 파일로 남김
-logger.add(LOG_PATH, rotation="1 MB", retention="10 days", encoding="utf-8")
+
+def _setup_file_log():
+    """봇으로 실행할 때만 파일 로그를 붙인다 (import만 해도 운영 로그에 쓰지 않도록)."""
+    os.makedirs(LOG_DIR, exist_ok=True)
+    logger.add(LOG_PATH, rotation="1 MB", retention="10 days", encoding="utf-8")
 
 # 구매 재시도: 첫 시도 실패 후 최대 3회, 2분 간격
 BUY_MAX_RETRIES = 3
@@ -134,8 +135,16 @@ def buy_job():
             browser, page = login(user_id, user_pw, headless=headless)
             timer.mark("로그인")
 
-            result = buy_games(page, games_config, dry_run=False, prepared_games=prepared) or {}  # 실제 구매!
+            result = buy_games(page, games_config, dry_run=False, prepared_games=prepared)  # 실제 구매!
             timer.mark("구매")
+
+            if not (result or {}).get('purchased'):
+                # '구매하기'를 누르지 않고 끝났다 (구매 가능 수량 0 등). 돈이 나가지 않았으므로
+                # 성공으로 기록하면 한도만 깎이고 이번 주를 산 것으로 잘못 보인다.
+                reason = (result or {}).get('reason', '구매 미진행')
+                logger.warning(f"구매하지 않고 종료: {reason}")
+                ledger.record_purchase('skipped', games=len(prepared), note=reason)
+                break
 
             logger.info(f"구매 시도 {attempt}/{total_attempts} 성공 ({timer.summary()})")
             rounds = ", ".join(f"{r}회" for r in result.get('rounds', []))
@@ -286,7 +295,16 @@ def deposit_job():
         balance = lotto.get_reliable_balance(page)
         logger.info(f"현재 예치금: {balance}원 / 충전 기준: {threshold}원")
 
-        if balance != -1 and balance >= threshold:
+        if balance == -1:
+            # 잔액을 모르면 충전이 필요한지도 모른다. 돈이 오가는 작업이라 추측으로 충전하지 않는다.
+            # (충전 후 잔액 변동으로 성공 여부를 판정하는 것도 불가능해진다.)
+            msg = "⚠️ 예치금을 읽지 못해 이번 충전을 건너뜁니다. 동행복권에서 예치금을 직접 확인해 주세요."
+            logger.warning(msg)
+            send_discord_message(msg)
+            ledger.record_deposit('failed', note="예치금 조회 실패로 건너뜀")
+            return
+
+        if balance >= threshold:
             msg = f"ℹ️ 예치금이 충분합니다 ({balance:,}원 ≥ 기준 {threshold:,}원). 충전을 건너뜁니다."
             logger.info(msg)
             send_discord_message(msg)
@@ -325,7 +343,7 @@ def deposit_job():
         # 사이트 알림창을 놓쳐도 예치금 변동으로 실제 충전 여부를 판정한다.
         # (2026-09-11: 결제는 정상 처리됐는데 알림을 못 잡아 '실패'로 보고된 적이 있다.
         #  돈이 오간 일이라 사이트 응답보다 잔액 변동을 1차 근거로 삼는다.)
-        if new_balance != -1 and balance != -1:
+        if new_balance != -1:
             delta = new_balance - balance
             if delta >= amount:
                 ledger.record_deposit('ok', amount=amount)
@@ -349,12 +367,13 @@ def deposit_job():
                     f"(기대 +{amount:,}원)\n📊 사이트 응답: {status}"
                 )
         else:
-            # 잔액을 못 읽어 판정 불가 — 성공 응답이거나 결과 불명이면 돈이 나간 것으로 본다.
+            # 충전 후 잔액을 못 읽어 판정 불가 — 성공 응답이거나 결과 불명이면 돈이 나간 것으로 본다.
             if status in ('success', 'unknown'):
                 ledger.record_deposit('uncertain', amount=amount, note=f"잔액 조회 실패, 사이트 응답: {status}")
             else:
                 ledger.record_deposit('failed', note=f"사이트 응답: {status}")
-            send_discord_message(f"📊 충전 작업 종료 (결과: {status}) — 현재 예치금 {new_balance:,}원")
+            send_discord_message(f"📊 충전 작업 종료 (결과: {status}) — 충전 후 예치금을 읽지 못했습니다. "
+                                 "동행복권에서 직접 확인해 주세요.")
 
     except Exception as e:
         logger.error(f"충전 작업 중 오류 발생: {e}")
@@ -439,43 +458,30 @@ def refresh_status_job():
             from auth import close_browser
             close_browser(browser)
 
-def _register_jobs(schedule_config):
-    """schedule_config에 따라 구매/충전/당첨확인 잡을 등록한다.
-    재등록(핫리로드) 시에는 호출 전에 schedule.clear()를 먼저 수행해야 한다.
+def _build_scheduler(schedule_config):
+    """설정대로 구매/충전/당첨확인 잡을 등록한 새 Scheduler를 만든다. 반환: (scheduler, 오류 목록)
+
+    핫리로드 때 기존 예약을 먼저 지우고 새로 등록하다 실패하면 예약이 0개인 채로
+    봇이 계속 돈다 (하트비트는 정상이라 감시도 구매 시각 90분 뒤에야 알아챈다).
+    그래서 새 Scheduler에 따로 만들어 보고, 오류가 없을 때만 교체한다.
     """
-    def get_scheduler(day_name):
-        day_name = (day_name or '').lower()
-        if hasattr(schedule.every(), day_name):
-            return getattr(schedule.every(), day_name)
-        return None
+    from bot_watchdog import SCHEDULE_FIELDS, schedule_errors
+    errors = schedule_errors(schedule_config)
+    scheduler = schedule.Scheduler()
+    if errors:
+        return scheduler, errors
 
-    # 구매
-    buy_day = schedule_config.get('buy_day', 'Saturday')
-    buy_time = schedule_config.get('buy_time', '10:00')
-    s = get_scheduler(buy_day)
-    if s:
-        s.at(buy_time).do(buy_job)
-        logger.info(f"📅 구매 예약: 매주 {buy_day} {buy_time}")
-    else:
-        logger.error(f"잘못된 요일 설정(구매): {buy_day}")
+    jobs = {"buy_day": buy_job, "deposit_day": deposit_job, "check_day": check_winning_job}
+    for label, day_key, time_key, default_day, default_time in SCHEDULE_FIELDS:
+        day = schedule_config.get(day_key, default_day)
+        hhmm = schedule_config.get(time_key, default_time)
+        try:
+            getattr(scheduler.every(), day.lower()).at(hhmm).do(jobs[day_key])
+            logger.info(f"📅 {label} 예약: 매주 {day} {hhmm}")
+        except Exception as e:
+            errors.append(f"{label}: {day} {hhmm} ({e})")
+    return scheduler, errors
 
-    # 예치금 충전 (deposit_job은 현재 비활성 no-op)
-    deposit_day = schedule_config.get('deposit_day', 'Friday')
-    deposit_time = schedule_config.get('deposit_time', '18:00')
-    s = get_scheduler(deposit_day)
-    if s:
-        s.at(deposit_time).do(deposit_job)
-        logger.info(f"📅 충전 예약: 매주 {deposit_day} {deposit_time}")
-
-    # 당첨 확인
-    check_day = schedule_config.get('check_day', 'Saturday')
-    check_time = schedule_config.get('check_time', '23:00')
-    s = get_scheduler(check_day)
-    if s:
-        s.at(check_time).do(check_winning_job)
-        logger.info(f"📅 당첨 확인 예약: 매주 {check_day} {check_time}")
-    else:
-        logger.error(f"잘못된 요일 설정(당첨확인): {check_day}")
 
 def run_scheduler():
     set_default_tag("봇")
@@ -496,12 +502,19 @@ def run_scheduler():
     set_default_tag("봇")  # refresh_status_job이 바꾼 태그 복원
 
     # 스케줄 등록 (핫리로드를 위해 현재 schedule 설정을 추적)
-    current_schedule_cfg = config['schedule']
-    _register_jobs(current_schedule_cfg)
-    send_discord_message(f"📅 스케줄 등록됨: {current_schedule_cfg}")
+    current_schedule_cfg = config.get('schedule') or {}
+    scheduler, errors = _build_scheduler(current_schedule_cfg)
+    if errors:
+        # 시작부터 설정이 틀렸다면 구매가 실행되지 않는다. 기본 일정으로라도 돌리고 크게 알린다.
+        logger.error(f"스케줄 설정 오류 → 기본 일정으로 실행: {errors}")
+        send_discord_message("🚨 스케줄 설정 오류로 기본 일정(토 10:00 구매 / 금 18:00 충전 / 토 23:00 당첨확인)으로 실행합니다.\n- "
+                             + "\n- ".join(errors) + "\n대시보드에서 스케줄을 다시 저장해 주세요.")
+        scheduler, _ = _build_scheduler({})
+    else:
+        send_discord_message(f"📅 스케줄 등록됨: {current_schedule_cfg}")
 
     logger.info("📋 예약된 작업 목록:")
-    for job in schedule.get_jobs():
+    for job in scheduler.get_jobs():
         logger.info(f"   - {job} (다음 실행: {job.next_run})")
 
     # 디스코드 명령(!도움말 등). 봇 토큰이 설정돼 있을 때만 동작하며,
@@ -528,7 +541,7 @@ def run_scheduler():
     last_reload_check = time.time()
 
     while True:
-        schedule.run_pending()
+        scheduler.run_pending()
         current_time = time.time()
 
         # 5초마다 config.json 변경 확인 → 스케줄 핫리로드
@@ -542,12 +555,18 @@ def run_scheduler():
                     new_sched = new_config.get('schedule') if new_config else None
                     if new_sched and new_sched != current_schedule_cfg:
                         logger.info(f"⚙️ 스케줄 변경 감지 → 재등록: {new_sched}")
-                        send_discord_message(f"⚙️ 스케줄이 변경되어 새 시간으로 재설정합니다.\n{new_sched}")
-                        schedule.clear()
-                        current_schedule_cfg = new_sched
-                        _register_jobs(current_schedule_cfg)
-                        for job in schedule.get_jobs():
-                            logger.info(f"   - {job} (다음 실행: {job.next_run})")
+                        new_scheduler, errors = _build_scheduler(new_sched)
+                        if errors:
+                            # 기존 예약은 그대로 둔다. (mtime은 이미 갱신돼 같은 오류로 반복 알림하지 않음)
+                            logger.error(f"새 스케줄 설정 오류 — 기존 일정 유지: {errors}")
+                            send_discord_message("⚠️ 바뀐 스케줄 설정에 오류가 있어 기존 일정을 그대로 유지합니다.\n- "
+                                                 + "\n- ".join(errors))
+                        else:
+                            send_discord_message(f"⚙️ 스케줄이 변경되어 새 시간으로 재설정합니다.\n{new_sched}")
+                            scheduler = new_scheduler
+                            current_schedule_cfg = new_sched
+                            for job in scheduler.get_jobs():
+                                logger.info(f"   - {job} (다음 실행: {job.next_run})")
             except Exception as e:
                 logger.warning(f"스케줄 리로드 확인 중 오류: {e}")
 
@@ -563,4 +582,5 @@ def run_scheduler():
         time.sleep(1)
 
 if __name__ == "__main__":
+    _setup_file_log()
     run_scheduler()

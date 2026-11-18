@@ -436,6 +436,10 @@ function saveSetupConfig() {
             })
                 .then(response => response.json())
                 .then(data => {
+                    if (data.status !== 'success') {
+                        alert(data.message);
+                        return;
+                    }
                     alert("설정이 완료되었습니다! 대시보드로 이동합니다.");
                     // Reload to switch view
                     loadConfig();

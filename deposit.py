@@ -289,40 +289,29 @@ def request_deposit(page: Page, amount: int = 5000, payment_pw: str = None, dry_
 
 
 if __name__ == "__main__":
+    # 수동 점검: python deposit.py  (Dry Run — 결제 비밀번호 입력 직전까지만 진행)
+    import json
     import sys
-    from dotenv import load_dotenv
-    
-    load_dotenv()
-    
-    # 로그 설정
+    from security import SecurityManager, CONFIG_FILE
+    from auth import login, close_browser
+
     logger.remove()
-    logger.add(sys.stderr, format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
+    logger.add(sys.stderr)
 
-    encrypted_id = os.getenv("LOTTO_USER_ID")
-    encrypted_pw = os.getenv("LOTTO_USER_PW")
-    encrypted_pay_pw = os.getenv("LOTTO_PAY_PW")
-    
-    if not encrypted_id or not encrypted_pw:
-        logger.error("환경변수 설정이 필요합니다.")
-        exit(1)
-        
-    from security import SecurityManager
+    with open(CONFIG_FILE, encoding='utf-8') as f:
+        account = json.load(f)['account']
     manager = SecurityManager()
-    user_id = manager.decrypt(encrypted_id)
-    user_pw = manager.decrypt(encrypted_pw)
-    pay_pw = manager.decrypt(encrypted_pay_pw) if encrypted_pay_pw else None
+    user_pw = manager.decrypt(account['user_pw'])
+    pay_pw = manager.decrypt(account.get('pay_pw', ''))
+    if not user_pw:
+        logger.error("config.json의 비밀번호를 복호화하지 못했습니다 (secret.key 확인).")
+        sys.exit(1)
 
-    from auth import login
-
-    # 테스트를 위해 Headless False로 설정
-    browser, page = login(user_id, user_pw, headless=False)
+    browser, page = login(account['user_id'], user_pw, headless=False)
     try:
-        # Dry Run 모드 실행
         request_deposit(page, 5000, payment_pw=pay_pw, dry_run=True)
-        # time.sleep(1e9)
         logger.success("테스트 완료. (Dry Run)")
     except Exception as e:
         logger.error(f"테스트 실패: {e}")
     finally:
-        time.sleep(3)
-        browser.close()
+        close_browser(browser)
