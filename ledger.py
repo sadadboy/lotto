@@ -25,6 +25,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 LEDGER_PATH = os.path.join(DATA_DIR, 'ledger.json')
 LOCK_PATH = os.path.join(DATA_DIR, 'ledger.lock')
+# 대시보드에 보여줄 최근 영수증. data/는 호스트에 마운트돼 있어 컨테이너를 다시 만들어도 남는다.
+# (예전엔 /app 루트에 저장해 재빌드할 때마다 사라지고 'No Receipt Yet'이 떴음)
+RECEIPT_PATH = os.path.join(DATA_DIR, 'latest_receipt.png')
 
 SPENT_STATUSES = ('ok', 'uncertain')
 KEEP_DAYS = 400

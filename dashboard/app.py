@@ -380,6 +380,9 @@ def serve_image(filename):
     # 루트에는 config.json, secret.key도 있으므로 이미지 확장자만 허용한다.
     if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
         return jsonify({"status": "error", "message": "not found"}), 404
+    if filename == os.path.basename(ledger.RECEIPT_PATH):
+        # 최근 영수증은 재빌드에도 남도록 data/에 저장된다.
+        return send_from_directory(ledger.DATA_DIR, filename)
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return send_from_directory(root_dir, filename)
 

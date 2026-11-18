@@ -448,9 +448,10 @@ def buy_games(page: Page, games_config: list, dry_run: bool = False, prepared_ga
             from history import capture_recent_receipt
             receipt_info = capture_recent_receipt(page)
             if receipt_info:
-                # 구매 직후이므로 latest_receipt.png로 저장 (통합)
-                import shutil
-                shutil.copy(receipt_info['image_path'], "latest_receipt.png")
+                # 구매 직후이므로 대시보드용 최근 영수증으로 저장 (통합)
+                import shutil, ledger
+                os.makedirs(ledger.DATA_DIR, exist_ok=True)
+                shutil.copy(receipt_info['image_path'], ledger.RECEIPT_PATH)
 
                 # 상태 업데이트: 미확인 (구매 완료)
                 status_manager.update_latest_result("미확인 (구매 완료)")

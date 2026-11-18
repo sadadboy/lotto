@@ -18,17 +18,16 @@ def check_winning_result(page):
     from history import capture_recent_receipt
     receipt_info = capture_recent_receipt(page)
     
-    screenshot_path = "latest_receipt.png" 
-    
     if receipt_info:
         # 이미지 경로 확인
         original_image_path = receipt_info.get('image_path')
         screenshot_path = None
         
         if original_image_path and os.path.exists(original_image_path):
-            screenshot_path = "latest_receipt.png"
-            import shutil
+            import shutil, ledger
+            screenshot_path = ledger.RECEIPT_PATH
             try:
+                os.makedirs(ledger.DATA_DIR, exist_ok=True)
                 shutil.copy(original_image_path, screenshot_path)
             except Exception as e:
                 logger.warning(f"이미지 복사 실패: {e}")

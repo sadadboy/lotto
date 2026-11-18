@@ -69,3 +69,14 @@ def test_save_failure_is_reported(client, monkeypatch):
     res = client.post("/api/config", json={"schedule": {"buy_day": "Sunday", "buy_time": "09:00"}})
     assert res.status_code == 500
     assert res.get_json()["status"] == "error"
+
+
+def test_latest_receipt_served_from_data_dir(client, data_dir, monkeypatch):
+    # 영수증은 마운트된 data/에 있어야 컨테이너 재생성 후에도 보인다.
+    import ledger
+    monkeypatch.setattr(ledger, "RECEIPT_PATH", str(data_dir / "latest_receipt.png"))
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "latest_receipt.png").write_bytes(b"\x89PNG fake")
+    r = client.get("/api/images/latest_receipt.png")
+    assert r.status_code == 200
+    assert r.data == b"\x89PNG fake"
